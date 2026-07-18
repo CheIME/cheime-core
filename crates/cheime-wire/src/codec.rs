@@ -17,6 +17,11 @@ impl MessageCodec {
         }
     }
 
+    #[must_use]
+    pub fn max_size(&self) -> usize {
+        self.max_size
+    }
+
     pub fn encode_frontend(&self, msg: &FrontendMessage) -> Result<Vec<u8>, WireError> {
         let data = rmp_serde::to_vec(msg).map_err(|e| WireError::Encode(e.to_string()))?;
         if data.len() > self.max_size {
