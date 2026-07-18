@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/cheime-model",
+    "crates/cheime-protocol",
 ]
 resolver = "3"
 
