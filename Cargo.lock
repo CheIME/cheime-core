@@ -22,6 +22,7 @@ name = "cheime-dictionary"
 version = "0.1.0"
 dependencies = [
  "cheime-model",
+ "serde",
  "serde_yaml",
  "sha2",
  "thiserror",
