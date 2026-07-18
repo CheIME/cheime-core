@@ -1,0 +1,7 @@
+[workspace]
+members = ["cheime-core"]
+edition = "2024"
+name = "cheime"
+
+
+[workspace.dependencies]
