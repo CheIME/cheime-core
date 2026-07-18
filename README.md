@@ -23,3 +23,14 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
+
+## Crate boundaries
+
+| Crate | Responsibility |
+| --- | --- |
+| `cheime-model` | Platform-neutral identities, commands, candidates, snapshots, and platform-action values |
+| `cheime-protocol` | Versioned frontend/engine message families |
+| `cheime-pipeline` | Language-neutral processing interface and deterministic built-in test pipeline |
+| `cheime-session` | Single-writer session, revision checks, snapshots, and confirmed platform actions |
+
+The dependency direction is `model <- protocol/pipeline <- session`. Platform frontends consume the public protocol; they never access session internals.
