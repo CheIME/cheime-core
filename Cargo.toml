@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/cheime-dictionary",
     "crates/cheime-model",
     "crates/cheime-pipeline",
     "crates/cheime-protocol",
@@ -16,4 +17,6 @@ repository = "https://github.com/cheime/cheime-core"
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+sha2 = "0.10"
 thiserror = "2.0"
