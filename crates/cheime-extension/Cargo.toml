@@ -1,0 +1,12 @@
+[package]
+name = "cheime-extension"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+cheime-model = { path = "../cheime-model" }
+serde.workspace = true
+thiserror.workspace = true

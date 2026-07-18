@@ -1,6 +1,8 @@
 [workspace]
 members = [
     "crates/cheime-dictionary",
+    "crates/cheime-extension",
+    "crates/cheime-lua",
     "crates/cheime-model",
     "crates/cheime-pipeline",
     "crates/cheime-protocol",
@@ -17,6 +19,7 @@ license = "MPL-2.0"
 repository = "https://github.com/cheime/cheime-core"
 
 [workspace.dependencies]
+mlua = { version = "0.10", features = ["lua54", "vendored", "send"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 sha2 = "0.10"
