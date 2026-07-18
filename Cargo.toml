@@ -5,6 +5,7 @@ members = [
     "crates/cheime-pipeline",
     "crates/cheime-protocol",
     "crates/cheime-session",
+    "crates/cheime-user-data",
 ]
 resolver = "3"
 
