@@ -127,6 +127,7 @@ dependencies = [
 name = "cheime-wire"
 version = "0.1.0"
 dependencies = [
+ "cheime-model",
  "cheime-protocol",
  "rmp-serde",
  "serde",
