@@ -11,3 +11,10 @@ cheime-model = { path = "../cheime-model" }
 cheime-pipeline = { path = "../cheime-pipeline" }
 cheime-protocol = { path = "../cheime-protocol" }
 thiserror.workspace = true
+[dev-dependencies]
+cheime-dictionary = { path = "../cheime-dictionary" }
+criterion.workspace = true
+
+[[bench]]
+name = "session_bench"
+harness = false

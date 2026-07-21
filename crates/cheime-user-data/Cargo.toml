@@ -10,3 +10,9 @@ repository.workspace = true
 cheime-model = { path = "../cheime-model" }
 serde.workspace = true
 thiserror.workspace = true
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "store_bench"
+harness = false

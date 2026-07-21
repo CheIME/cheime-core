@@ -131,6 +131,8 @@ mod tests {
             }],
             highlighted: Some(CandidateId::new(1)),
             status: SessionStatus::Composing,
+            page_size: 9,
+            page: 0,
         };
         let msg = EngineMessage::CandidateSnapshot {
             header: quick_header(),

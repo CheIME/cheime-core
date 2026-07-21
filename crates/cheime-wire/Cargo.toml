@@ -12,3 +12,9 @@ cheime-protocol = { path = "../cheime-protocol" }
 rmp-serde.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "frame_bench"
+harness = false

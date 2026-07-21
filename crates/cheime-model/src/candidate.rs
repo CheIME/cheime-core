@@ -24,9 +24,14 @@ pub struct CandidateSnapshot {
     pub deployment: DeploymentGeneration,
     pub preedit: String,
     pub cursor: usize,
+    /// Candidates on the current page (already paginated).
     pub candidates: Vec<Candidate>,
     pub highlighted: Option<CandidateId>,
     pub status: SessionStatus,
+    /// Number of candidates per page.
+    pub page_size: usize,
+    /// Current page index (0-based).
+    pub page: usize,
 }
 
 #[cfg(test)]
@@ -50,6 +55,8 @@ mod tests {
             }],
             highlighted: Some(CandidateId::new(8)),
             status: SessionStatus::Composing,
+            page_size: 9,
+            page: 0,
         };
         drop(source);
         assert_eq!(snapshot.candidates[0].text, "你");
