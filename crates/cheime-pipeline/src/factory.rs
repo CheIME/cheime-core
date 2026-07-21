@@ -25,6 +25,7 @@ impl PipelineFactory {
     pub fn build(config: &SchemaConfig, user_store: Option<Arc<Mutex<UserStore>>>, dict_index: Option<Arc<CompiledIndex>>) -> Result<ComposablePipeline, BuildError> {
         Ok(ComposablePipeline::new(
             Self::build_processor(&config.engine)?, Self::build_segmentor(&config.engine)?,
+            None, // normalizer — configurable later
             Self::build_translators(&config.engine, user_store, dict_index)?,
             Self::build_filters(&config.engine)?, Self::build_ranker()))
     }

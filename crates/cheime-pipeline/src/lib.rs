@@ -4,12 +4,13 @@ mod builtin;
 pub mod factory;
 pub mod filter;
 pub mod key_mapper;
+pub mod normalizer;
 pub mod processor;
 pub mod ranker;
 pub mod segmentor;
 pub mod translator;
-
 use cheime_model::{Candidate, KeyEvent};
+use crate::normalizer::CodeNormalizer;
 use thiserror::Error;
 
 pub use builtin::BuiltinPipeline;
@@ -102,13 +103,10 @@ pub trait Ranker: Send + Sync {
 }
 
 // ── ComposablePipeline ──────────────────────────────────────────────
-
-/// A pipeline assembled from individual components.
-///
-/// Execution order: Processor → Segmentor → Translators → Filters → Ranker
 pub struct ComposablePipeline {
     processor: Box<dyn Processor>,
     segmentor: Box<dyn Segmentor>,
+    normalizer: Option<Box<dyn CodeNormalizer>>,
     translators: Vec<Box<dyn Translator>>,
     filters: Vec<Box<dyn Filter>>,
     ranker: Box<dyn Ranker>,
@@ -116,19 +114,12 @@ pub struct ComposablePipeline {
 
 impl ComposablePipeline {
     pub fn new(
-        processor: Box<dyn Processor>,
-        segmentor: Box<dyn Segmentor>,
-        translators: Vec<Box<dyn Translator>>,
-        filters: Vec<Box<dyn Filter>>,
+        processor: Box<dyn Processor>, segmentor: Box<dyn Segmentor>,
+        normalizer: Option<Box<dyn CodeNormalizer>>,
+        translators: Vec<Box<dyn Translator>>, filters: Vec<Box<dyn Filter>>,
         ranker: Box<dyn Ranker>,
     ) -> Self {
-        Self {
-            processor,
-            segmentor,
-            translators,
-            filters,
-            ranker,
-        }
+        Self { processor, segmentor, normalizer, translators, filters, ranker }
     }
 }
 
@@ -153,17 +144,19 @@ impl InputPipeline for ComposablePipeline {
         // 2. Segmentor — split composition into code units
         let segments = self.segmentor.segment(&proc.composition);
 
-        // 3. Translators — collect candidates per segment
+        // 2.5 Normalizer — expand segments into fuzzy/spelling variants
+        let variants: Vec<CodeSegment> = if let Some(n) = &self.normalizer {
+            segments.iter().flat_map(|s| n.normalize(s)).collect()
+        } else {
+            segments
+        };
+
+        // 3. Translators — collect candidates per variant
         let mut candidates: Vec<Candidate> = Vec::new();
-        for seg in &segments {
+        for seg in &variants {
             for translator in &self.translators {
                 candidates.extend(translator.translate(seg));
             }
-        }
-
-        // 4. Filters — post-process candidates
-        for filter in &self.filters {
-            candidates = filter.filter(candidates);
         }
 
         // 5. Ranker — sort
