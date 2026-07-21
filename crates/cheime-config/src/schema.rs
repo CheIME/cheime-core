@@ -206,7 +206,7 @@ pub enum TranslatorConfig {
     Lua(LuaComponentRef),
 
     #[serde(rename = "emoji")]
-    Emoji,
+    Emoji(EmojiTranslatorConfig),
 
     #[serde(rename = "history")]
     History,
@@ -253,6 +253,20 @@ pub struct ScriptTranslatorConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prism: Option<String>,
 }
+
+/// Emoji translator: loads emoji data from an external TSV file.
+///
+/// File format: `emoji<TAB>keywords(space-sep)<TAB>pinyin(space-sep)`
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EmojiTranslatorConfig {
+    /// Path to emoji data file (relative to config dir, or absolute).
+    /// Default: "data/emoji.txt"
+    #[serde(default = "default_emoji_data")]
+    pub emoji_data: String,
+}
+
+fn default_emoji_data() -> String { String::from("data/emoji.txt") }
 
 // ── Filter configs ──────────────────────────────────────────────────
 

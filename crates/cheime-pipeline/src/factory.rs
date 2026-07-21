@@ -43,12 +43,35 @@ impl PipelineFactory {
         for s in &e.segmentors { if matches!(s, SegmentorConfig::PinyinSyllable) { return Ok(Box::new(PinyinSegmentor::new())); } }
         Ok(Box::new(PassthroughSegmentor))
     }
-    fn build_translators(_e: &EngineConfig, user_store: Option<Arc<Mutex<UserStore>>>, dict_index: Option<Arc<CompiledIndex>>) -> Result<Vec<Box<dyn Translator>>, BuildError> {
+    fn build_translators(e: &EngineConfig, user_store: Option<Arc<Mutex<UserStore>>>, dict_index: Option<Arc<CompiledIndex>>) -> Result<Vec<Box<dyn Translator>>, BuildError> {
+        use cheime_config::schema::TranslatorConfig;
         let mut out: Vec<Box<dyn Translator>> = Vec::new();
-        if let Some(s) = user_store { out.push(Box::new(UserDictTranslator::new(s))); }
-        if let Some(idx) = dict_index { out.push(Box::new(DictTranslator::new("main", idx))); }
-        out.push(Box::new(crate::emoji::EmojiTranslator::new()));
-        if out.is_empty() { out.push(Box::new(PassthroughTranslator)); }
+
+        for tc in &e.translators {
+            match tc {
+                TranslatorConfig::Dict(_) | TranslatorConfig::Table(_) => {
+                    if let Some(ref idx) = dict_index {
+                        out.push(Box::new(DictTranslator::new("main", Arc::clone(idx))));
+                    }
+                }
+                TranslatorConfig::Emoji(ec) => {
+                    let path = std::path::Path::new(&ec.emoji_data);
+                    out.push(Box::new(crate::emoji::EmojiTranslator::from_file(path)));
+                }
+                TranslatorConfig::Script(_) | TranslatorConfig::Lua(_) => {
+                    // Not yet implemented — skip
+                }
+                _ => {}
+            }
+        }
+
+        // Fallback: if no translators configured, use defaults
+        if out.is_empty() {
+            if let Some(s) = user_store { out.push(Box::new(UserDictTranslator::new(s))); }
+            if let Some(idx) = dict_index { out.push(Box::new(DictTranslator::new("main", idx))); }
+            out.push(Box::new(crate::emoji::EmojiTranslator::from_file(std::path::Path::new("data/emoji.txt"))));
+            if out.is_empty() { out.push(Box::new(PassthroughTranslator)); }
+        }
         Ok(out)
     }
     fn build_filters(e: &EngineConfig) -> Result<Vec<Box<dyn Filter>>, BuildError> {

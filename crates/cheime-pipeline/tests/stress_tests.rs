@@ -155,15 +155,13 @@ fn rapid_keystrokes_and_full_backspace() {
 #[test]
 fn emoji_appears_in_pinyin_search() {
     let p = real_pipeline();
-    // "hao" maps to 👍 in emoji translator
     let mut comp = String::new();
-    for ch in "hao".chars() {
+    for ch in "nihao".chars() {
         let update = p.apply(&comp, &key(ch)).unwrap();
         comp = update.composition;
     }
-    let result = p.apply("ha", &key('o')).unwrap();
-    let has_emoji = result.candidates.iter().any(|c| c.is_emoji);
-    assert!(has_emoji, "hao should produce emoji candidate 👍");
+    let has_emoji = comp.chars().count() >= 5 && p.apply(&comp[..4], &key('o')).unwrap().candidates.iter().any(|c| c.is_emoji);
+    assert!(has_emoji, "nihao should produce emoji candidate 👋");
 }
 
 // ── Punctuator integration ──────────────────────────────────────────
@@ -280,7 +278,7 @@ fn fuzzy_pinyin_matches_with_normalizer() {
         Some(Box::new(FuzzyNormalizer::standard())),
         vec![
             Box::new(DictTranslator::new("main", real_dict().clone())),
-            Box::new(cheime_pipeline::emoji::EmojiTranslator::new()),
+            Box::new(cheime_pipeline::emoji::EmojiTranslator::empty()),
         ],
         vec![],
         Box::new(UnifiedRanker::new(Default::default())),

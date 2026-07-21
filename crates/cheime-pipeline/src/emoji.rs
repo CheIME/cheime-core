@@ -2,87 +2,144 @@
 //!
 //! CheIME advantage: emoji is a dedicated Translator with keyword/pinyin
 //! indexing, not an OpenCC simplifier filter like Rime's `simplifier@emoji`.
+//!
+//! ## Data Format (Rime OpenCC emoji compatible)
+//!
+//! Two-column TSV: `keyword<TAB>emoji`. Drop any Rime emoji `.txt` file
+//! directly into `data/` and point `emoji_data` at it.
+//!
+//! ```text
+//! 笑	😀
+//! nihao	👋
+//! hello	👋
+//! ```
+//!
+//! Lookup: per-segment code (e.g. "zan"→👍) + concatenated segments
+//! (e.g. ["ni","hao"]→"ni hao"→👋).
 
 use crate::{CodeSegment, Translator};
 use cheime_model::{Candidate, CandidateId};
 use std::collections::HashMap;
+use std::path::Path;
 
 pub struct EmojiTranslator {
     /// keyword → list of emoji chars
-    by_keyword: HashMap<String, Vec<String>>,
-    /// pinyin → list of emoji chars
-    by_pinyin: HashMap<String, Vec<String>>,
+    index: HashMap<String, Vec<String>>,
     counter: u64,
 }
 
 impl EmojiTranslator {
-    pub fn new() -> Self {
-        let mut t = Self { by_keyword: HashMap::new(), by_pinyin: HashMap::new(), counter: 2_000_000 };
-        t.load_builtin();
+    /// Load emoji data from a Rime-compatible OpenCC TSV file.
+    /// Format: `keyword<TAB>emoji`. Falls back to builtin if missing.
+    pub fn from_file(path: &Path) -> Self {
+        let mut t = Self { index: HashMap::new(), counter: 2_000_000 };
+        match std::fs::read_to_string(path) {
+            Ok(content) => {
+                let count = t.load(&content);
+                eprintln!("Emoji: loaded {count} entries from {}", path.display());
+            }
+            Err(e) => {
+                eprintln!("Emoji: cannot read {}: {e}, using builtin", path.display());
+                t.load_builtin();
+            }
+        }
         t
     }
 
-    fn add(&mut self, emoji: &str, keywords: &[&str], pinyin: &[&str]) {
-        for kw in keywords { self.by_keyword.entry(kw.to_lowercase()).or_default().push(emoji.to_owned()); }
-        for py in pinyin { self.by_pinyin.entry(py.to_lowercase()).or_default().push(emoji.to_owned()); }
+    /// Load from Rime OpenCC emoji content (keyword<TAB>emoji).
+    pub fn load(&mut self, content: &str) -> usize {
+        let mut count = 0;
+        for line in content.lines() {
+            let t = line.trim();
+            if t.is_empty() || t.starts_with('#') { continue; }
+            let parts: Vec<&str> = t.splitn(2, '\t').collect();
+            if parts.len() < 2 { continue; }
+            let kw = parts[0].trim().to_lowercase();
+            let em = parts[1].trim();
+            if kw.is_empty() || em.is_empty() { continue; }
+            self.index.entry(kw).or_default().push(em.to_owned());
+            count += 1;
+        }
+        count
     }
 
     fn load_builtin(&mut self) {
-        // Smileys & Emotion
-        self.add("😀", &["笑", "哈哈", "开心", "smile", "grin"], &["xiao", "haha", "kaixin"]);
-        self.add("😂", &["笑哭了", "笑哭", "大笑", "joy", "tears"], &["xiao", "daxiao"]);
-        self.add("🤣", &["笑滚", "笑死", "rofl"], &["xiao", "xiaosi"]);
-        self.add("😊", &["微笑", "害羞", "blush", "smile"], &["weixiao", "haixiu"]);
-        self.add("😍", &["喜欢", "爱", "花痴", "heart", "love"], &["xihuan", "ai"]);
-        self.add("😘", &["亲亲", "飞吻", "kiss"], &["qinqin"]);
-        self.add("😜", &["调皮", "吐舌", "wink", "tongue"], &["tiaopi"]);
-        self.add("😎", &["酷", "墨镜", "cool", "sunglasses"], &["ku"]);
-        self.add("🤩", &["星星眼", "惊艳", "star"], &["xingxing"]);
-        self.add("🥳", &["庆祝", "派对", "party", "celebrate"], &["qingzhu"]);
-        self.add("😭", &["哭", "大哭", "伤心", "cry", "sad"], &["ku", "daku", "shangxin"]);
-        self.add("😡", &["生气", "愤怒", "angry", "rage"], &["shengqi", "fennu"]);
-        self.add("🤯", &["爆炸", "震惊", "mindblown"], &["baozha", "zhenjing"]);
-        self.add("🥺", &["可怜", "求求", "pleading"], &["kelian"]);
-        self.add("😴", &["困", "睡觉", "sleep", "tired"], &["kun", "shuijiao"]);
-        self.add("🤒", &["生病", "发烧", "sick"], &["shengbing", "fashao"]);
+        self.load("\
+笑	😀
+笑哭	😂
+笑滚	🤣
+微笑	😊
+喜欢	😍
+爱	❤️
+亲亲	😘
+哭	😭
+生气	😡
+赞	👍
+好	👍
+你好	👋
+hello	👋
+nihao	👋
+踩	👎
+鼓掌	👏
+祈祷	🙏
+加油	💪
+握手	🤝
+胜利	✌️
+火	🔥
+星	⭐
+钱	💰
+庆祝	🎉
+生日	🎂
+礼物	🎁
+灯泡	💡
+链接	🔗
+笔记	📝
+满分	💯
+完成	✅
+错误	❌
+警告	⚠️
+禁止	🚫
+问号	❓
+xiao	😀
+daxiao	😂
+weixiao	😊
+xihuan	😍
+ai	❤️
+xin	❤️
+ku	😭
+shengqi	😡
+zan	👍
+hui	👋
+huishou	👋
+cai	👎
+guzhang	👏
+qidao	🙏
+jiayou	💪
+woshou	🤝
+shengli	✌️
+huo	🔥
+re	🔥
+xing	⭐
+qian	💰
+qingzhu	🎉
+shengri	🎂
+liwu	🎁
+dengpao	💡
+lianjie	🔗
+biji	📝
+manfen	💯
+wancheng	✅
+cuowu	❌
+jinggao	⚠️
+jinzhi	🚫
+wenhao	❓
+ni hao	👋
+");
+    }
 
-        // Gestures
-        self.add("👍", &["赞", "好", "顶", "thumbsup", "like"], &["zan"]);
-        self.add("👋", &["你好", "挥手", "hello", "hi", "wave", "bye"], &["nihao", "huishou"]);
-        self.add("👎", &["踩", "差", "反对", "thumbsdown"], &["cai", "cha"]);
-        self.add("👏", &["鼓掌", "拍手", "clap"], &["guzhang"]);
-        self.add("🙏", &["祈祷", "感谢", "拜托", "pray", "thanks"], &["qidao", "ganxie", "baituo"]);
-        self.add("💪", &["强壮", "肌肉", "加油", "muscle", "strong"], &["qiangzhuang", "jiayou"]);
-        self.add("🤝", &["握手", "合作", "handshake"], &["woshou", "hezuo"]);
-        self.add("✌️", &["胜利", "耶", "peace", "victory"], &["shengli", "ye"]);
-
-        // Common objects
-        self.add("❤️", &["爱", "心", "heart", "love"], &["ai", "xin"]);
-        self.add("🔥", &["火", "热", "热门", "fire", "hot"], &["huo", "re"]);
-        self.add("⭐", &["星", "收藏", "star", "favorite"], &["xing", "shoucang"]);
-        self.add("💰", &["钱", "财富", "money", "rich"], &["qian", "caifu"]);
-        self.add("🎉", &["庆祝", "恭喜", "party", "confetti"], &["qingzhu", "gongxi"]);
-        self.add("🎂", &["生日", "蛋糕", "birthday", "cake"], &["shengri", "dangao"]);
-        self.add("🍕", &["披萨", "pizza"], &["pisa"]);
-        self.add("🍺", &["啤酒", "beer"], &["pijiu"]);
-        self.add("☕", &["咖啡", "coffee"], &["kafei"]);
-        self.add("🎵", &["音乐", "音符", "music"], &["yinyue"]);
-        self.add("📚", &["书", "学习", "book"], &["shu", "xuexi"]);
-        self.add("💻", &["电脑", "工作", "computer", "laptop"], &["diannao", "gongzuo"]);
-        self.add("🚀", &["火箭", "起飞", "rocket", "launch"], &["huojian", "qifei"]);
-        self.add("🎯", &["目标", "靶心", "target", "bullseye"], &["mubiao"]);
-        self.add("💡", &["灯泡", "想法", "idea", "lightbulb"], &["dengpao", "xiangfa"]);
-
-        // Weather / nature
-        self.add("🌞", &["太阳", "晴天", "sun"], &["taiyang", "qingtian"]);
-        self.add("🌈", &["彩虹", "rainbow"], &["caihong"]);
-        self.add("🌧", &["下雨", "rain"], &["xiayu"]);
-        self.add("🌸", &["花", "樱花", "flower", "sakura"], &["hua", "yinghua"]);
-
-        // Animals
-        self.add("🐶", &["狗", "dog", "puppy"], &["gou"]);
-        self.add("🐱", &["猫", "cat", "kitten"], &["mao"]);
-        self.add("🐼", &["熊猫", "panda"], &["xiongmao"]);
+    /// Create with empty index (for testing).
+    pub fn empty() -> Self {
+        Self { index: HashMap::new(), counter: 2_000_000 }
     }
 }
 
@@ -92,12 +149,17 @@ impl Translator for EmojiTranslator {
     fn translate(&self, segments: &[CodeSegment]) -> Vec<Candidate> {
         let mut results: Vec<String> = Vec::new();
 
+        // Per-segment lookup
         for seg in segments {
-            let code = &seg.code;
-            if let Some(emojis) = self.by_pinyin.get(code) {
+            if let Some(emojis) = self.index.get(&seg.code) {
                 results.extend(emojis.clone());
             }
-            if let Some(emojis) = self.by_keyword.get(code) {
+        }
+
+        // Concatenated segment lookup (e.g. ["ni","hao"] → "ni hao")
+        if segments.len() > 1 {
+            let joined = segments.iter().map(|s| s.code.as_str()).collect::<Vec<_>>().join(" ");
+            if let Some(emojis) = self.index.get(&joined) {
                 results.extend(emojis.clone());
             }
         }
@@ -113,19 +175,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn smile_emoji_by_pinyin() {
-        let t = EmojiTranslator::new();
-        let s = CodeSegment { code: "xiao".into(), tag: "pinyin".into() };
-        let cs = t.translate(&[s]);
-        assert!(!cs.is_empty());
-        assert!(cs.iter().all(|c| c.is_emoji));
+    fn load_openc_format() {
+        let mut t = EmojiTranslator::empty();
+        let n = t.load("笑\t😀\n笑哭\t😂\nnihao\t👋\n");
+        assert_eq!(n, 3);
+        let cs = t.translate(&[CodeSegment { code: "笑".into(), tag: "kw".into() }]);
+        assert_eq!(cs[0].text, "😀");
     }
 
     #[test]
-    fn heart_by_keyword() {
-        let t = EmojiTranslator::new();
-        let s = CodeSegment { code: "heart".into(), tag: "ascii".into() };
-        let cs = t.translate(&[s]);
-        assert!(!cs.is_empty());
+    fn concatenated_segments_match() {
+        let mut t = EmojiTranslator::empty();
+        t.load("ni hao\t👋\n");
+        let segs = &[CodeSegment { code: "ni".into(), tag: "py".into() }, CodeSegment { code: "hao".into(), tag: "py".into() }];
+        let cs = t.translate(segs);
+        assert_eq!(cs[0].text, "👋");
+    }
+
+    #[test]
+    fn builtin_has_nihao_wave() {
+        let t = EmojiTranslator::from_file(Path::new("/nonexistent/emoji.txt"));
+        let segs = &[CodeSegment { code: "ni".into(), tag: "py".into() }, CodeSegment { code: "hao".into(), tag: "py".into() }];
+        let cs = t.translate(segs);
+        assert!(cs.iter().any(|c| c.text == "👋"), "builtin should have 👋 for ni hao");
+    }
+
+    #[test]
+    fn comments_skipped() {
+        let mut t = EmojiTranslator::empty();
+        let n = t.load("# header\n笑\t😀\n# footer\n");
+        assert_eq!(n, 1);
     }
 }
