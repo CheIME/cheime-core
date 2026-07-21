@@ -1,0 +1,17 @@
+[package]
+name = "cheime-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "cheime"
+path = "src/main.rs"
+
+[dependencies]
+cheime-model = { path = "../../crates/cheime-model" }
+cheime-pipeline = { path = "../../crates/cheime-pipeline" }
+cheime-session = { path = "../../crates/cheime-session" }
+cheime-protocol = { path = "../../crates/cheime-protocol" }
+cheime-dictionary = { path = "../../crates/cheime-dictionary" }

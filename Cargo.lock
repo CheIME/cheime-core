@@ -83,6 +83,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "cheime-cli"
+version = "0.1.0"
+dependencies = [
+ "cheime-dictionary",
+ "cheime-model",
+ "cheime-pipeline",
+ "cheime-protocol",
+ "cheime-session",
+]
+
+[[package]]
 name = "cheime-config"
 version = "0.1.0"
 dependencies = [
@@ -135,9 +146,11 @@ dependencies = [
 name = "cheime-pipeline"
 version = "0.1.0"
 dependencies = [
+ "cheime-config",
  "cheime-dictionary",
  "cheime-model",
  "criterion",
+ "serde_yaml",
  "thiserror",
 ]
 

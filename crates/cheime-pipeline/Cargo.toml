@@ -7,11 +7,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+cheime-config = { path = "../cheime-config" }
 cheime-dictionary = { path = "../cheime-dictionary" }
 cheime-model = { path = "../cheime-model" }
 thiserror.workspace = true
-
 [dev-dependencies]
+serde_yaml.workspace = true
 criterion.workspace = true
 
 [[bench]]
