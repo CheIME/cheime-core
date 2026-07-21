@@ -31,7 +31,9 @@ impl Translator for DictTranslator {
 
     fn translate(&self, segments: &[CodeSegment]) -> Vec<Candidate> {
         let code = segments.iter().map(|s| s.code.as_str()).collect::<Vec<_>>().join(" ");
-        self.index.query(&code)
+        // Prefix search: "ni" matches "ni", "ni hao", "ni men", etc.
+        // Limit to 200; UnifiedRanker will re-sort and truncate.
+        self.index.query_prefix(&code, 200)
     }
 }
 
