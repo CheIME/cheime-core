@@ -33,8 +33,9 @@ impl Translator for DictTranslator {
         let code = segments.iter().map(|s| s.code.as_str()).collect::<Vec<_>>().join(" ");
         match segments.len() {
             0 => vec![],
-            1 => self.index.query(&code),                     // single segment: exact match
-            _ => self.index.query_prefix(&code, 10),          // multi-segment: prefix, limit 10
+            1 if code.len() == 1 => self.index.query_prefix(&code, 100),   // single letter: prefix all codes
+            1 => self.index.query(&code),                                  // multi-letter: exact match
+            _ => self.index.query_prefix(&code, 10),                       // multi-segment: prefix
         }
     }
 }
