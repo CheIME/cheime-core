@@ -1,6 +1,6 @@
 #![allow(unsafe_code)]
 
-pub mod format;
+pub(crate) mod format;
 pub mod reader;
 
 pub use format::write_tidex;

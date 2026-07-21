@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use cheime_model::{Candidate, CandidateId};
+use cheime_model::{Candidate, CandidateId, DeploymentGeneration};
 use cheime_tidx::TidexReader;
 
 // ---------------------------------------------------------------------------
@@ -24,13 +24,12 @@ pub struct HotEntry {
 /// A tiered index: top-N entries per code kept in memory (hot),
 /// remainder on disk via mmap-backed `.tidx` file (cold).
 pub struct TieredIndex {
-    /// Sorted by code string ascending. Each code has top-N entries by weight.
     pub(crate) hot: Vec<(String, Vec<HotEntry>)>,
-    /// Cold disk index.
     pub(crate) cold: Arc<TidexReader>,
     pub(crate) hot_entries_per_code: usize,
     pub(crate) total_entries: usize,
     pub(crate) source_hash: String,
+    pub(crate) generation: DeploymentGeneration,
 }
 
 // TidexReader contains Mmap (no Debug), so manual impl.
@@ -55,6 +54,7 @@ impl TieredIndex {
         tidx_path: &Path,
         hot_entries_per_code: usize,
         source_hash: String,
+        generation: DeploymentGeneration,
     ) -> Result<Self, TidexBuildError> {
         let total_entries: usize = code_entries.iter().map(|(_, e)| e.len()).sum();
         let cold = TidexReader::open(tidx_path)
@@ -79,35 +79,37 @@ impl TieredIndex {
             hot_entries_per_code,
             total_entries,
             source_hash,
+            generation,
         })
     }
 
     /// Exact code lookup — merge hot + cold entries.
     pub fn query(&self, code: &str) -> Vec<Candidate> {
-        // Collect hot entries
-        let hot_entries: Vec<_> = if let Ok(idx) = self.hot.binary_search_by(|(c, _)| c.as_str().cmp(code)) {
-            self.hot[idx].1.clone()
-        } else {
-            Vec::new()
-        };
-        let cold_entries = self.cold.query(code);
-        // Merge: hot first (already top-N by weight), then cold
+        let mut seen = std::collections::HashSet::new();
         let mut all = Vec::new();
-        for e in &hot_entries {
-            all.push((e.weight, e.text.clone()));
+
+        // Hot entries
+        if let Ok(idx) = self.hot.binary_search_by(|(c, _)| c.as_str().cmp(code)) {
+            for e in &self.hot[idx].1 {
+                if seen.insert(e.text.clone()) {
+                    all.push((e.weight, e.text.clone()));
+                }
+            }
         }
-        for (text, weight) in cold_entries {
-            // Avoid duplicates between hot and cold
-            if !hot_entries.iter().any(|he| he.text == text) {
+
+        // Cold entries — skip duplicates
+        for (text, weight) in self.cold.query(code) {
+            if seen.insert(text.clone()) {
                 all.push((weight, text));
             }
         }
+
         all.sort_by_key(|(w, _)| std::cmp::Reverse(*w));
         let hash8 = self.source_hash.chars().take(8).collect::<String>();
         all.into_iter().enumerate().map(|(idx, (_w, text))| Candidate {
             id: CandidateId::new(idx as u64 + 1),
             text,
-            annotation: None,
+            annotation: Some(code.to_owned()),
             source: format!("dict:{hash8}"),
             is_emoji: false,
         }).collect()
@@ -134,8 +136,9 @@ impl TieredIndex {
             }
         }
 
-        // Cold entries — skip texts already seen in hot
-        let cold = self.cold.query_prefix(prefix, limit.saturating_sub(all.len()));
+        // Cold entries — over-fetch to compensate for hot/cold dedup
+        let cold_limit = limit.saturating_sub(all.len()).saturating_mul(2);
+        let cold = self.cold.query_prefix(prefix, cold_limit);
         for (text, weight) in cold {
             if seen.insert(text.clone()) {
                 all.push((weight, text));

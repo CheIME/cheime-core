@@ -52,6 +52,21 @@ impl TidexReader {
             reason: msg.to_string(),
         })?;
 
+        // Validate declared sections fit within the file
+        let file_len = data.len() as u64;
+        let code_end = hdr.code_idx_off as u64 + hdr.code_count as u64 * 12;
+        let block_end = hdr.block_tbl_off as u64 + hdr.entry_count as u64 * 8;
+        let text_end = hdr.text_pool_off as u64 + hdr.text_pool_size as u64;
+        if code_end > file_len || block_end > file_len || text_end > file_len {
+            return Err(TidexError::Format {
+                path: path.to_path_buf(),
+                reason: format!(
+                    "declared sections exceed file: code_end={}, block_end={}, text_end={}, file={}",
+                    code_end, block_end, text_end, file_len
+                ),
+            });
+        }
+
         Ok(Self {
             _mmap: mmap,
             data,

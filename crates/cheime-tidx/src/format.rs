@@ -137,9 +137,6 @@ pub fn read_block_entry(data: &[u8], base: usize, idx: u32) -> (u32, i32) {
 // Text pool helpers
 // ---------------------------------------------------------------------------
 
-/// Write a `[u16 len_le][utf8]` string. Returns the offset where it was written.
-#[inline]
-
 /// Read a `[u16 len_le][utf8]` string at the given offset.
 ///
 /// # Safety
@@ -152,10 +149,15 @@ pub unsafe fn read_text(data: &[u8], offset: u32) -> &str {
     unsafe { std::str::from_utf8_unchecked(bytes) }
 }
 
+/// Write a `[u16 len_le][utf8]` string. Returns the offset where it was written.
+///
+/// # Panics
+/// Panics if `text` exceeds 65535 bytes (u16::MAX).
+#[inline]
 pub fn write_text(w: &mut (impl Write + Seek), text: &str) -> io::Result<u32> {
     let pos = w.stream_position()?;
     let bytes = text.as_bytes();
-    let len = bytes.len() as u16;
+    let len = u16::try_from(bytes.len()).expect("text exceeds u16::MAX bytes");
     w.write_all(&len.to_le_bytes())?;
     w.write_all(bytes)?;
     Ok(pos as u32)
@@ -232,19 +234,19 @@ pub fn write_tidex(
     f.write_all(&header)?;
 
     // Code Index
-    assert_eq!(f.stream_position()?, code_idx_off as u64, "code_idx_off mismatch");
+    debug_assert_eq!(f.stream_position()?, code_idx_off as u64, "code_idx_off mismatch");
     for &(co, fb, cnt) in &code_idx_entries {
         write_code_idx_entry(&mut f, co, fb, cnt)?;
     }
 
     // Block Table
-    assert_eq!(f.stream_position()?, block_tbl_off as u64, "block_tbl_off mismatch");
+    debug_assert_eq!(f.stream_position()?, block_tbl_off as u64, "block_tbl_off mismatch");
     for &(to, wt) in &block_entries {
         write_block_entry(&mut f, to, wt)?;
     }
 
     // Text Pool — skip duplicates to match Phase 1 offset bookkeeping
-    assert_eq!(f.stream_position()?, text_pool_off as u64, "text_pool_off mismatch");
+    debug_assert_eq!(f.stream_position()?, text_pool_off as u64, "text_pool_off mismatch");
     let mut written = std::collections::HashSet::new();
     for i in 0..code_entries.len() {
         let (code, entries) = code_entries[i];

@@ -145,16 +145,14 @@ impl CompiledIndex {
         source_hash: String,
         generation: DeploymentGeneration,
     ) -> Result<Self, crate::tiered::TidexBuildError> {
-        let tiered = TieredIndex::new(code_entries, tidx_path, hot_entries_per_code, source_hash)?;
-        // Store generation in some way if needed...
-        let _ = generation;
+        let tiered = TieredIndex::new(code_entries, tidx_path, hot_entries_per_code, source_hash, generation)?;
         Ok(CompiledIndex::Tiered(Arc::new(tiered)))
     }
 
     pub fn generation(&self) -> Option<&DeploymentGeneration> {
         match self {
             CompiledIndex::Memory(m) => Some(&m.generation),
-            CompiledIndex::Tiered(_) => None, // tiered doesn't track generation yet
+            CompiledIndex::Tiered(t) => Some(&t.generation),
         }
     }
 
