@@ -1,0 +1,27 @@
+# CheIME base schema — shared pipeline foundation.
+# All concrete input schemes extend this.
+#
+# CheIME advantage: typed component config replaces Rime's string-based
+# component references. Every field is type-checked at parse time.
+
+schema_version: 1
+
+extends: []
+
+engine:
+  processors:
+    - type: ascii_composer
+
+  segmentors:
+    - type: pinyin_syllable
+
+  translators:
+    - type: dict
+      dictionary: rime_ice_base
+
+  filters:
+    - type: uniquifier
+
+menu:
+  page_size: 9
+  page_down_cycle: false

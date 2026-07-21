@@ -1,0 +1,31 @@
+# CheIME QuanPin (全拼) schema.
+#
+# Extends the base pipeline and adds fuzzy pinyin normalization.
+# CheIME advantage: type-checked component config, extends chain resolved
+# at deploy time, validation catches typos before runtime.
+
+schema_version: 1
+
+extends:
+  - "../schemas/base.yaml"
+
+engine:
+  # Base already provides: ascii_composer, pinyin_syllable, dict, uniquifier
+  # QuanPin adds: fuzzy normalizer, emoji translator
+
+  translators:
+    - type: emoji
+
+  filters:
+    - type: simplifier
+      option_name: s2t
+      opencc_config: "../../data/opencc/s2t.tsv"
+
+speller:
+  alphabet: "zyxwvutsrqponmlkjihgfedcba"
+  initials: "bpmfdtnlgkhjqxzcsryw"
+  delimiter: "'"
+  max_code_length: 0
+
+menu:
+  page_size: 9

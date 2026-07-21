@@ -1,0 +1,30 @@
+# CheIME Flypy (小鹤双拼) schema.
+#
+# Extends the base pipeline and overrides the key mapper to Flypy.
+# CheIME advantage: double-pinyin is purely a KeyMapper swap —
+# no need to duplicate the entire pipeline or pinyin dictionary.
+
+schema_version: 1
+
+extends:
+  - "../schemas/base.yaml"
+
+engine:
+  translators:
+    - type: emoji
+
+# Flypy key mapper is a runtime component — specified here for documentation.
+# The actual mapper is wired via PipelineFactory::build(key_mapper=FlypyMapper).
+# KeyMapper config:
+#   type: flypy
+#   mapping:
+#     a: [a, a]  v: [zh, ui]  i: [ch, i]  u: [sh, u]
+#     ... (full 26-key mapping)
+
+speller:
+  alphabet: "zyxwvutsrqponmlkjihgfedcba"
+  max_code_length: 2  # double-pinyin: exactly 2 keys per syllable
+  delimiter: "'"
+
+menu:
+  page_size: 9

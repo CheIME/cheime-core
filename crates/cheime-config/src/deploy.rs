@@ -341,4 +341,23 @@ menu:
             serde_json::from_str(&std::fs::read_to_string(&diag_path).unwrap()).unwrap();
         assert_eq!(diag["schema_version"], 1);
     }
+
+    #[test]
+    fn base_schema_loads_and_validates() {
+        let base_yaml = include_str!("../../../config/schemas/base.yaml");
+        let schema: crate::schema::SchemaConfig = serde_yaml::from_str(base_yaml).unwrap();
+        assert_eq!(schema.schema_version, 1);
+        assert_eq!(schema.engine.segmentors.len(), 1);
+        assert_eq!(schema.menu.page_size, 9);
+    }
+
+    #[test]
+    fn quanpin_extends_base() {
+        let quanpin_yaml = include_str!("../../../config/schemas/quanpin.yaml");
+        let quanpin: crate::schema::SchemaConfig = serde_yaml::from_str(quanpin_yaml).unwrap();
+        assert_eq!(quanpin.extends.len(), 1);
+        assert!(quanpin.speller.is_some());
+        let speller = quanpin.speller.as_ref().unwrap();
+        assert_eq!(speller.initials.as_deref(), Some("bpmfdtnlgkhjqxzcsryw"));
+    }
 }

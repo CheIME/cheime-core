@@ -199,9 +199,11 @@ pub enum TranslatorConfig {
 
     #[serde(rename = "echo")]
     Echo,
-
     #[serde(rename = "lua")]
     Lua(LuaComponentRef),
+
+    #[serde(rename = "emoji")]
+    Emoji,
 
     #[serde(rename = "history")]
     History,
