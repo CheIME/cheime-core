@@ -10,4 +10,9 @@ repository.workspace = true
 cheime-model = { path = "../cheime-model" }
 serde = { workspace = true, features = ["derive"] }
 serde_yaml.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
