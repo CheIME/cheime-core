@@ -1,35 +1,51 @@
-//! Candidate ranker: sorts by frequency/weight.
+//! Unified ranker — multi-signal candidate scoring (DRAFT §5.5).
 //!
-//! For now a simple sort by (weight desc, text asc). The unified
-//! multi-signal ranker (DRAFT §5.5) is planned for a later phase.
+//! CheIME advantage: single re-ranker across all translators.
+//! Rime sorts within each translator independently; no unified re-rank.
 
 use crate::Ranker;
 use cheime_model::Candidate;
+use std::cmp::Ordering;
 
-/// Sorts candidates by frequency (higher = earlier) then text (shorter = earlier).
-#[derive(Clone, Debug, Default)]
-pub struct FrequencyRanker;
+#[derive(Clone, Debug)]
+pub struct RankWeights {
+    pub source: f64,
+    pub code_length: f64,
+}
 
-impl FrequencyRanker {
-    pub fn new() -> Self {
-        Self
+impl Default for RankWeights {
+    fn default() -> Self { Self { source: 1.0, code_length: 0.3 } }
+}
+
+#[derive(Clone, Debug)]
+pub struct UnifiedRanker {
+    weights: RankWeights,
+}
+
+impl UnifiedRanker {
+    pub fn new(weights: RankWeights) -> Self { Self { weights } }
+
+    fn score(&self, c: &Candidate) -> f64 {
+        let mut s = source_priority(&c.source) * self.weights.source;
+        s += self.weights.code_length * (1.0 / (c.text.chars().count() as f64).max(1.0));
+        if c.is_emoji { s += 0.05; }
+        s
     }
 }
 
-impl Ranker for FrequencyRanker {
-    fn name(&self) -> &str {
-        "frequency"
-    }
+fn source_priority(src: &str) -> f64 {
+    if src.starts_with("user") { 1.0 }
+    else if src.starts_with("dict") { 0.8 }
+    else if src == "builtin" { 0.7 }
+    else if src == "emoji" { 0.5 }
+    else { 0.3 }
+}
 
+impl Ranker for UnifiedRanker {
+    fn name(&self) -> &str { "unified" }
     fn rank(&self, mut candidates: Vec<Candidate>) -> Vec<Candidate> {
-        // Sort by id as a proxy for weight — candidates from translators
-        // should already be in weight order. This is a placeholder.
         candidates.sort_by(|a, b| {
-            a.id
-                .get()
-                .cmp(&b.id.get())
-                .then_with(|| a.text.len().cmp(&b.text.len()))
-                .then_with(|| a.text.cmp(&b.text))
+            self.score(b).partial_cmp(&self.score(a)).unwrap_or(Ordering::Equal)
         });
         candidates
     }
@@ -41,16 +57,35 @@ mod tests {
     use cheime_model::CandidateId;
 
     #[test]
-    fn sorts_by_id_then_text() {
-        let ranker = FrequencyRanker::new();
+    fn user_source_ranks_higher() {
+        let r = UnifiedRanker::new(RankWeights::default());
         let input = vec![
-            Candidate::text(CandidateId::new(3), "重", "dict"),
-            Candidate::text(CandidateId::new(1), "中", "dict"),
-            Candidate::text(CandidateId::new(2), "种", "dict"),
+            Candidate::text(CandidateId::new(1), "中国", "dict:abc"),
+            Candidate::text(CandidateId::new(2), "中国", "user_dict"),
         ];
-        let result = ranker.rank(input);
-        assert_eq!(result[0].text, "中");
-        assert_eq!(result[1].text, "种");
-        assert_eq!(result[2].text, "重");
+        let result = r.rank(input);
+        assert_eq!(result[0].source, "user_dict");
+    }
+
+    #[test]
+    fn emoji_ranks_below_dict() {
+        let r = UnifiedRanker::new(RankWeights::default());
+        let input = vec![
+            Candidate::emoji(CandidateId::new(1), "😄"),
+            Candidate::text(CandidateId::new(2), "笑", "dict:abc"),
+        ];
+        let result = r.rank(input);
+        assert_eq!(result[0].text, "笑");
+    }
+
+    #[test]
+    fn shorter_code_preferred() {
+        let r = UnifiedRanker::new(RankWeights { code_length: 10.0, ..Default::default() });
+        let input = vec![
+            Candidate::text(CandidateId::new(1), "中华人民共和国", "dict"),
+            Candidate::text(CandidateId::new(2), "中国", "dict"),
+        ];
+        let result = r.rank(input);
+        assert_eq!(result[0].text, "中国");
     }
 }

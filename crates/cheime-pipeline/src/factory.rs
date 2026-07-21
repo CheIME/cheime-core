@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 pub use crate::filter::DedupFilter;
 pub use crate::processor::DefaultProcessor;
-pub use crate::ranker::FrequencyRanker;
+pub use crate::ranker::UnifiedRanker;
 pub use crate::segmentor::PinyinSegmentor;
 pub use crate::translator::{DictTranslator, PassthroughTranslator, UserDictTranslator};
 
@@ -52,7 +52,9 @@ impl PipelineFactory {
         for f in &e.filters { if matches!(f, FilterConfig::Uniquifier) { out.push(Box::new(DedupFilter::new())); } }
         Ok(out)
     }
-    fn build_ranker() -> Box<dyn Ranker> { Box::new(FrequencyRanker::new()) }
+    fn build_ranker() -> Box<dyn Ranker> {
+        Box::new(UnifiedRanker::new(Default::default()))
+    }
 }
 
 #[derive(Clone, Debug)]
