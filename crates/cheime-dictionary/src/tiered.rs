@@ -120,6 +120,7 @@ impl TieredIndex {
             .partition_point(|(c, _)| c.as_str() < prefix);
 
         let mut all = Vec::new();
+        let mut seen = std::collections::HashSet::new();
 
         // Hot entries within prefix range
         for (code, entries) in &self.hot[start..] {
@@ -127,14 +128,18 @@ impl TieredIndex {
                 break;
             }
             for e in entries {
-                all.push((e.weight, e.text.clone()));
+                if seen.insert(e.text.clone()) {
+                    all.push((e.weight, e.text.clone()));
+                }
             }
         }
 
-        // Cold entries
+        // Cold entries — skip texts already seen in hot
         let cold = self.cold.query_prefix(prefix, limit.saturating_sub(all.len()));
         for (text, weight) in cold {
-            all.push((weight, text));
+            if seen.insert(text.clone()) {
+                all.push((weight, text));
+            }
         }
 
         all.sort_by_key(|(w, _)| std::cmp::Reverse(*w));

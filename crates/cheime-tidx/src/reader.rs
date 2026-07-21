@@ -10,15 +10,11 @@ use std::path::Path;
 /// (where K = number of matching codes × entries per code).
 pub struct TidexReader {
     _mmap: Mmap,
-    // Pointers into the mmap region — SAFETY: _mmap outlives these
+    // SAFETY: data lifetime backed by _mmap — TidexReader owns both.
     data: &'static [u8],
-    #[allow(dead_code)]
     code_idx_base: usize,
     code_count: u32,
-    #[allow(dead_code)]
     block_tbl_base: usize,
-    #[allow(dead_code)]
-    text_pool_base: usize,
 }
 
 impl TidexReader {
@@ -62,7 +58,6 @@ impl TidexReader {
             code_idx_base: hdr.code_idx_off as usize,
             code_count: hdr.code_count,
             block_tbl_base: hdr.block_tbl_off as usize,
-            text_pool_base: hdr.text_pool_off as usize,
         })
     }
 
@@ -77,12 +72,6 @@ impl TidexReader {
         unsafe { read_text(self.data, code_off) }
     }
 
-    /// Entry count for code `idx`.
-    #[allow(dead_code)]
-    fn count_at(&self, idx: u32) -> u32 {
-        let (_, _, count) = read_code_idx_entry(self.data, self.code_idx_base, idx);
-        count
-    }
 
     /// Read the entry text and weight at Level-2 block index `blk_idx`.
     fn read_block(&self, blk_idx: u32) -> (&str, i32) {
