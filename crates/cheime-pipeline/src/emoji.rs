@@ -47,7 +47,8 @@ impl EmojiTranslator {
         self.add("🤒", &["生病", "发烧", "sick"], &["shengbing", "fashao"]);
 
         // Gestures
-        self.add("👍", &["赞", "好", "顶", "thumbsup", "like"], &["zan", "hao"]);
+        self.add("👍", &["赞", "好", "顶", "thumbsup", "like"], &["zan"]);
+        self.add("👋", &["你好", "挥手", "hello", "hi", "wave", "bye"], &["nihao", "huishou"]);
         self.add("👎", &["踩", "差", "反对", "thumbsdown"], &["cai", "cha"]);
         self.add("👏", &["鼓掌", "拍手", "clap"], &["guzhang"]);
         self.add("🙏", &["祈祷", "感谢", "拜托", "pray", "thanks"], &["qidao", "ganxie", "baituo"]);
