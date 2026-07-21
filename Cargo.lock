@@ -106,6 +106,7 @@ dependencies = [
  "cheime-session",
  "cheime-user-data",
  "parking_lot",
+ "serde_json",
  "serde_yaml",
 ]
 

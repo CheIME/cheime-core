@@ -19,3 +19,4 @@ cheime-session = { path = "../../crates/cheime-session" }
 cheime-user-data = { path = "../../crates/cheime-user-data" }
 parking_lot.workspace = true
 serde_yaml.workspace = true
+serde_json.workspace = true
