@@ -52,6 +52,7 @@ impl Translator for PassthroughTranslator {
             text: segment.code.clone(),
             annotation: None,
             source: String::from("passthrough"),
+            is_emoji: false,
         }]
     }
 }
@@ -84,11 +85,11 @@ impl Translator for UserDictTranslator {
             .into_iter()
             .enumerate()
             .map(|(i, uc)| Candidate {
-                // Use high IDs to avoid collision with dict candidates
                 id: cheime_model::CandidateId::new(1_000_000 + i as u64),
                 text: uc.text,
                 annotation: Some(format!("{}×{}", segment.code, uc.frequency)),
                 source: String::from("user_dict"),
+                is_emoji: false,
             })
             .collect()
     }

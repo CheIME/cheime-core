@@ -44,24 +44,9 @@ mod tests {
     fn sorts_by_id_then_text() {
         let ranker = FrequencyRanker::new();
         let input = vec![
-            Candidate {
-                id: CandidateId::new(3),
-                text: "重".into(),
-                annotation: None,
-                source: "dict".into(),
-            },
-            Candidate {
-                id: CandidateId::new(1),
-                text: "中".into(),
-                annotation: None,
-                source: "dict".into(),
-            },
-            Candidate {
-                id: CandidateId::new(2),
-                text: "种".into(),
-                annotation: None,
-                source: "dict".into(),
-            },
+            Candidate::text(CandidateId::new(3), "重", "dict"),
+            Candidate::text(CandidateId::new(1), "中", "dict"),
+            Candidate::text(CandidateId::new(2), "种", "dict"),
         ];
         let result = ranker.rank(input);
         assert_eq!(result[0].text, "中");

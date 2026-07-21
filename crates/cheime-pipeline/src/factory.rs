@@ -43,6 +43,7 @@ impl PipelineFactory {
         let mut out: Vec<Box<dyn Translator>> = Vec::new();
         if let Some(s) = user_store { out.push(Box::new(UserDictTranslator::new(s))); }
         if let Some(idx) = dict_index { out.push(Box::new(DictTranslator::new("main", idx))); }
+        out.push(Box::new(crate::emoji::EmojiTranslator::new()));
         if out.is_empty() { out.push(Box::new(PassthroughTranslator)); }
         Ok(out)
     }

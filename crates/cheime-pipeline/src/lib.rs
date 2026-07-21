@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod builtin;
+pub mod emoji;
 pub mod factory;
 pub mod filter;
 pub mod key_mapper;
@@ -9,13 +10,11 @@ pub mod processor;
 pub mod ranker;
 pub mod segmentor;
 pub mod translator;
-use crate::normalizer::CodeNormalizer;
-use thiserror::Error;
 pub use builtin::BuiltinPipeline;
 use cheime_model::{Candidate, Key, KeyEvent};
+use crate::normalizer::CodeNormalizer;
 use crate::key_mapper::KeyMapper;
-// ── Composable pipeline traits ──────────────────────────────────────
-
+use thiserror::Error;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PipelineIntent {
     None,

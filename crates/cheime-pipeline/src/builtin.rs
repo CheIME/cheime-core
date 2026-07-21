@@ -48,11 +48,12 @@ impl BuiltinPipeline {
             .flatten()
             .enumerate()
             .map(|(index, entry)| Candidate {
-                id: CandidateId::new(index as u64 + 1),
-                text: entry.text.clone(),
-                annotation: Some(composition.to_owned()),
-                source: String::from("builtin"),
-            })
+                            id: CandidateId::new(index as u64 + 1),
+                            text: entry.text.clone(),
+                            annotation: Some(composition.to_owned()),
+                            source: String::from("builtin"),
+                            is_emoji: false,
+                        })
             .collect()
     }
 }

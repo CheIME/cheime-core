@@ -31,11 +31,12 @@ fn key_message() -> FrontendMessage {
 fn snapshot_message(nc: usize) -> EngineMessage {
     let candidates: Vec<Candidate> = (0..nc)
         .map(|i| Candidate {
-            id: CandidateId::new(i as u64 + 1),
-            text: format!("候选{}", i),
-            annotation: Some(format!("pinyin{}", i)),
-            source: String::from("bench"),
-        })
+                        id: CandidateId::new(i as u64 + 1),
+                        text: format!("候选{}", i),
+                        annotation: Some(format!("pinyin{}", i)),
+                        source: String::from("bench"),
+                        is_emoji: false,
+                    })
         .collect();
     EngineMessage::CandidateSnapshot {
         header: MessageHeader {

@@ -128,6 +128,7 @@ mod tests {
                 text: String::from("你"),
                 annotation: Some(String::from("ni")),
                 source: String::from("builtin"),
+                is_emoji: false,
             }],
             highlighted: Some(CandidateId::new(1)),
             status: SessionStatus::Composing,

@@ -36,11 +36,12 @@ mod tests {
 
     fn c(text: &str, source: &str, id: u64) -> Candidate {
         Candidate {
-            id: CandidateId::new(id),
-            text: text.into(),
-            annotation: None,
-            source: source.into(),
-        }
+                        id: CandidateId::new(id),
+                        text: text.into(),
+                        annotation: None,
+                        source: source.into(),
+                        is_emoji: false,
+                    }
     }
 
     #[test]

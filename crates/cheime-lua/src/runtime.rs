@@ -296,11 +296,12 @@ impl Filter for LuaExtension {
         let candidates: Vec<Candidate> = filtered
             .into_iter()
             .map(|t| Candidate {
-                id: CandidateId::new(t.get("id").unwrap_or(0)),
-                text: t.get("text").unwrap_or_default(),
-                annotation: t.get("annotation").ok(),
-                source: format!("lua:{}", self.name),
-            })
+                            id: CandidateId::new(t.get("id").unwrap_or(0)),
+                            text: t.get("text").unwrap_or_default(),
+                            annotation: t.get("annotation").ok(),
+                            source: format!("lua:{}", self.name),
+                            is_emoji: false,
+                        })
             .collect();
 
         Ok(ExtensionOutput::Filter { candidates })

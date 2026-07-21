@@ -59,10 +59,8 @@ impl CompiledIndex {
                 id: CandidateId::new(idx as u64 + 1),
                 text: text.clone(),
                 annotation: Some(code.to_owned()),
-                source: format!(
-                    "dict:{}",
-                    self.source_hash.chars().take(8).collect::<String>()
-                ),
+                source: format!("dict:{}", self.source_hash.chars().take(8).collect::<String>()),
+                is_emoji: false,
             })
             .collect()
     }
