@@ -49,32 +49,57 @@ pub trait KeyMapper: Send + Sync {
 let pipeline = PipelineFactory::build(config, store, dict, Some(Box::new(FlypyMapper::new())));
 ```
 
-## 2. Processor (code: `processor.rs`)
+## 2. Processor (code: `processor.rs`, `punctuator.rs`)
 
 ```rust
-pub trait Processor: Send + Sync {
-    fn process(&self, composition: &str, event: &KeyEvent) -> Result<ProcessorOutput, PipelineError>;
+pub trait Processor: Send {
+    fn process(&mut self, composition: &str, event: &KeyEvent) -> Result<ProcessorOutput, PipelineError>;
+}
+```
+
+`&mut self` — 支持有状态 processor (如 Punctuator 跟踪上一个按键是数字)。
+
+```rust
+pub struct ProcessorOutput {
+    pub composition: String,
+    pub intent: PipelineIntent,   // None / Cancel / CommitHighlighted / CommitText(String)
+    pub consumed: bool,           // true = 跳过后续 pipeline 阶段
+    pub inject_candidates: Vec<Candidate>,  // processor 注入的候选(如标点符号扩展)
 }
 ```
 
 ### 内置实现
 
-**DefaultProcessor** — 覆盖基础按键场景:
+**DefaultProcessor** — 基础按键:
 
 | 按键 | 行为 |
 |---|---|
-| 小写字母 a–z | 追加到 composition |
+| 小写字母 a–z, 数字 0–9 | 追加到 composition |
 | Backspace | 删除最后一个字符 |
 | Enter / Space | 返回 `PipelineIntent::CommitHighlighted` |
 | Escape | 返回 `PipelineIntent::Cancel` |
-| 大写/其他 | 忽略 |
+
+**PunctProcessor** (code: `punctuator.rs`) — 标点符号拦截:
+
+| 动作 | PipelineIntent | inject_candidates |
+|---|---|---|
+| 单提交 `.` → `。` | `CommitText("。")` | 空 |
+| 候选 `\|` → `·｜§¦` | `None` | `[·, ｜, §, ¦]` |
+| 配对 `"` → `""` | `CommitText(""")` | 空 |
+| 数字后 `.` `:` | `None` (追加到 composition) | 空 |
+
+**配置示例:**
+```yaml
+punctuator:
+  full_shape:
+    ".": {commit: "。"}
+    "|": ["·", "｜", "§", "¦"]
+    "\"": {pair: [""", """]}
+  half_shape: {}
+```
 
 ## 3. Segmentor (code: `segmentor.rs`)
 
-```rust
-pub trait Segmentor: Send + Sync {
-    fn segment(&self, composition: &str) -> Vec<CodeSegment>;
-}
 ```
 
 ### 内置实现

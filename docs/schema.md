@@ -635,6 +635,48 @@ menu:
 
 ---
 
+## PunctuatorConfig — 标点符号映射
+
+**Rust 类型:** `PunctuatorConfig`
+
+**父字段:** `SchemaConfig.punctuator` (可选)
+
+标点符号按键到输出的映射。支持 full_shape (全角模式) 和 half_shape (半角模式) 两套映射。
+
+```yaml
+punctuator:
+  full_shape:
+    ".": {commit: "。"}           # 单提交: 按 . 直接输出 。
+    ",": {commit: "，"}
+    "|": ["·", "｜", "§", "¦"]    # 候选列表: 按 | 显示多个符号供选择
+    "$": ["￥", "$", "€", "£"]
+    "\"": {pair: [""", """]}     # 配对符号: 按 " 输出 ""
+  half_shape: {}                  # 半角模式 (通常为空, 直接输出原字符)
+```
+
+### 值类型
+
+| 值格式 | 含义 | 行为 |
+|---|---|---|
+| `"字符串"` | 字面量提交 | 直接 commit 该字符串 |
+| `{commit: "字符串"}` | 单提交 | 直接 commit |
+| `["A", "B", "C"]` | 候选列表 | 显示候选, 用户选择 |
+| `{pair: ["开", "闭"]}` | 配对符号 | 一次提交两个字符 |
+
+### 数字透传
+
+数字后 `.` 和 `:` 自动保持半角 (不需要配置):
+- `3.14` — 小数点透传
+- `12:30` — 冒号透传
+- 非数字后恢复全角行为
+
+| YAML 键 | Rust 类型 | 默认值 | 必填 | 说明 |
+|---|---|---|---|---|
+| `full_shape` | `BTreeMap<String, Value>` | `{}` | 否 | 全角模式映射 |
+| `half_shape` | `BTreeMap<String, Value>` | `{}` | 否 | 半角模式映射 |
+
+---
+
 ## SwitchGroup / SwitchConfig — 开关
 
 **Rust 类型:** `SwitchGroup` + `SwitchConfig`

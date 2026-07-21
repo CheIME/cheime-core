@@ -29,3 +29,6 @@ speller:
 
 menu:
   page_size: 9
+
+# Punctuator configuration is inherited from ../schemas/base.yaml.
+# See base.yaml `punctuator:` section for the full mapping.

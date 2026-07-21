@@ -25,3 +25,21 @@ engine:
 menu:
   page_size: 9
   page_down_cycle: false
+
+punctuator:
+  full_shape:
+    ".": {commit: "。"}
+    ",": {commit: "，"}
+    ":": {commit: "："}
+    ";": {commit: "；"}
+    "?": {commit: "？"}
+    "!": {commit: "！"}
+    "(": {commit: "（"}
+    ")": {commit: "）"}
+    "[": {commit: "【"}
+    "]": {commit: "】"}
+    "|": ["·", "｜", "§", "¦"]
+    "$": ["￥", "$", "€", "£"]
+    "\"": {pair: ["“", "”"]}
+    "'": {pair: ["‘", "’"]}
+  half_shape: {}
