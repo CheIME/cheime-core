@@ -31,34 +31,29 @@ pub fn parse_body(lines: &str, columns: &[DictColumn]) -> Result<Vec<DictEntry>,
             continue;
         }
         let fields: Vec<&str> = trimmed.split('\t').collect();
-        if fields.len() < columns.len() {
-            return Err(BodyError::ColumnCount {
-                line: line_num + 1,
-                expected: columns.len(),
-                got: fields.len(),
-            });
+        if fields.len() < 2 {
+            return Err(BodyError::ColumnCount { line: line_num + 1, expected: 2, got: fields.len() });
         }
         let mut text = String::new();
         let mut code = String::new();
-        let mut weight = None;
+        let mut weight = Some(1i64);
         let mut stem = None;
 
         for (idx, col) in columns.iter().enumerate() {
+            let val = fields.get(idx).copied().unwrap_or("");
             match col {
-                DictColumn::Text => text = fields[idx].to_owned(),
-                DictColumn::Code => code = fields[idx].to_owned(),
+                DictColumn::Text => text = val.to_owned(),
+                DictColumn::Code => code = val.to_owned(),
                 DictColumn::Weight => {
-                    weight =
-                        Some(
-                            fields[idx]
-                                .parse::<i64>()
-                                .map_err(|_| BodyError::InvalidWeight {
-                                    line: line_num + 1,
-                                    value: fields[idx].to_owned(),
-                                })?,
-                        );
+                    if idx < fields.len() && !val.is_empty() {
+                        weight = Some(val.parse::<i64>().map_err(|_| BodyError::InvalidWeight {
+                            line: line_num + 1, value: val.to_owned(),
+                        })?);
+                    }
                 }
-                DictColumn::Stem => stem = Some(fields[idx].to_owned()),
+                DictColumn::Stem => {
+                    if !val.is_empty() { stem = Some(val.to_owned()); }
+                }
             }
         }
         entries.push(DictEntry {
