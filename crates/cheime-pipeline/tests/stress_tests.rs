@@ -156,3 +156,107 @@ fn emoji_appears_in_pinyin_search() {
     let has_emoji = result.candidates.iter().any(|c| c.is_emoji);
     assert!(has_emoji, "hao should produce emoji candidate 👍");
 }
+
+// ── Punctuator integration ──────────────────────────────────────────
+
+#[test]
+fn punctuator_dot_commits_fullwidth_period() {
+    let config_yaml = r#"
+schema_version: 1
+engine:
+  segmentors:
+    - type: pinyin_syllable
+punctuator:
+  full_shape:
+    ".": {commit: "。"}
+  half_shape: {}
+"#;
+    let config: SchemaConfig = serde_yaml::from_str(config_yaml).unwrap();
+    let p = cheime_pipeline::factory::PipelineFactory::build(
+        &config, None, Some(real_dict().clone()), None,
+    ).unwrap();
+
+    let result = p.apply("", &KeyEvent { key: Key::Character('.'), state: KeyState::default() }).unwrap();
+    // With commit intent, the composition should be unchanged and CommitText("。") should fire
+    assert!(matches!(result.intent, cheime_pipeline::PipelineIntent::CommitText(ref t) if t == "。"),
+        "expected CommitText(。), got {:?}", result.intent);
+}
+
+#[test]
+fn punctuator_pipe_shows_candidates() {
+    let config_yaml = r#"
+schema_version: 1
+engine:
+  segmentors:
+    - type: pinyin_syllable
+punctuator:
+  full_shape:
+    "|": ["·", "｜", "§", "¦"]
+  half_shape: {}
+"#;
+    let config: SchemaConfig = serde_yaml::from_str(config_yaml).unwrap();
+    let p = cheime_pipeline::factory::PipelineFactory::build(
+        &config, None, Some(real_dict().clone()), None,
+    ).unwrap();
+
+    let result = p.apply("", &KeyEvent { key: Key::Character('|'), state: KeyState::default() }).unwrap();
+    assert_eq!(result.composition, "|");
+    assert_eq!(result.candidates.len(), 4, "expected 4 candidates, got {:?}", result.candidates.iter().map(|c| &c.text).collect::<Vec<_>>());
+    assert!(result.candidates.iter().any(|c| c.text == "·"));
+    assert!(result.candidates.iter().any(|c| c.text == "｜"));
+    assert!(result.candidates.iter().any(|c| c.text == "§"));
+    assert!(result.candidates.iter().any(|c| c.text == "¦"));
+}
+
+#[test]
+fn punctuator_after_digit_dot_stays_halfwidth() {
+    let config_yaml = r#"
+schema_version: 1
+engine:
+  segmentors:
+    - type: pinyin_syllable
+punctuator:
+  full_shape:
+    ".": {commit: "。"}
+  half_shape: {}
+"#;
+    let config: SchemaConfig = serde_yaml::from_str(config_yaml).unwrap();
+    let p = cheime_pipeline::factory::PipelineFactory::build(
+        &config, None, Some(real_dict().clone()), None,
+    ).unwrap();
+
+    // Type '3' then '.'
+    let r1 = p.apply("", &KeyEvent { key: Key::Character('3'), state: KeyState::default() }).unwrap();
+    assert_eq!(r1.composition, "3");
+
+    let r2 = p.apply("3", &KeyEvent { key: Key::Character('.'), state: KeyState::default() }).unwrap();
+    // Should append '.' as half-width, not commit '。'
+    assert_eq!(r2.composition, "3.");
+    assert!(!matches!(r2.intent, cheime_pipeline::PipelineIntent::CommitText(_)),
+        "should not commit after digit, got {:?}", r2.intent);
+}
+
+#[test]
+fn punctuator_digit_tracking_resets_on_non_digit() {
+    let config_yaml = r#"
+schema_version: 1
+engine:
+  segmentors:
+    - type: pinyin_syllable
+punctuator:
+  full_shape:
+    ".": {commit: "。"}
+  half_shape: {}
+"#;
+    let config: SchemaConfig = serde_yaml::from_str(config_yaml).unwrap();
+    let p = cheime_pipeline::factory::PipelineFactory::build(
+        &config, None, Some(real_dict().clone()), None,
+    ).unwrap();
+
+    // "3n." — the 'n' resets digit tracking, so '.' should commit '。'
+    p.apply("", &KeyEvent { key: Key::Character('3'), state: KeyState::default() }).unwrap();
+    p.apply("3", &KeyEvent { key: Key::Character('n'), state: KeyState::default() }).unwrap();
+    let r3 = p.apply("3n", &KeyEvent { key: Key::Character('.'), state: KeyState::default() }).unwrap();
+    assert!(matches!(r3.intent, cheime_pipeline::PipelineIntent::CommitText(ref t) if t == "。"),
+        "after letter, . should commit fullwidth, got {:?}", r3.intent);
+}
