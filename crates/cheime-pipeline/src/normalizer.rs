@@ -65,7 +65,7 @@ impl FuzzyNormalizer {
         }
     }
 
-    /// Create from rule names like "zh_z", "n_l". Empty = all standard rules.
+    /// Create from rule names like "zh_z", "n_l". Empty returns no rules (use standard() for all).
     pub fn from_rules(rule_names: &[String]) -> Self {
         let all = Self::standard();
         let rules: Vec<FuzzyRule> = all.rules.into_iter()

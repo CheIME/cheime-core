@@ -295,6 +295,7 @@ fn fuzzy_pinyin_matches_with_normalizer() {
     }
     assert!(found, "should produce candidates for zhong with fuzzy normalizer in pipeline");
 }
+#[test]
 fn punctuator_half_shape_does_not_convert() {
     let mut full = BTreeMap::new();
     full.insert(".".into(), serde_json::json!({"commit": "。"}));
@@ -392,8 +393,6 @@ engine:
     }
     assert!(found, "fuzzy z/zh should produce 中国 for 'zongguo'");
 }
-
-#[test]
 
 #[test]
 fn abbreviation_nh_produces_nihao() {
