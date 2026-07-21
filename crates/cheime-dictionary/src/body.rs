@@ -31,7 +31,7 @@ pub fn parse_body(lines: &str, columns: &[DictColumn]) -> Result<Vec<DictEntry>,
             continue;
         }
         let fields: Vec<&str> = trimmed.split('\t').collect();
-        if fields.len() != columns.len() {
+        if fields.len() < columns.len() {
             return Err(BodyError::ColumnCount {
                 line: line_num + 1,
                 expected: columns.len(),
@@ -93,17 +93,11 @@ mod tests {
     }
 
     #[test]
-    fn rejects_wrong_column_count() {
+    fn accepts_extra_columns() {
         let columns = [DictColumn::Text, DictColumn::Code];
-        let err = parse_body("你\tni\textra\n", &columns).unwrap_err();
-        assert!(matches!(
-            err,
-            BodyError::ColumnCount {
-                line: 1,
-                expected: 2,
-                got: 3
-            }
-        ));
+        let entries = parse_body("你\tni\textra\n", &columns).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].text, "你");
     }
 
     #[test]
