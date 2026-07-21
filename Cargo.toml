@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/cheime-config",
     "crates/cheime-wire",
     "crates/cheime-dictionary",
     "crates/cheime-extension",

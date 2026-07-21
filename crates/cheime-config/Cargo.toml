@@ -1,0 +1,13 @@
+[package]
+name = "cheime-config"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+cheime-model = { path = "../cheime-model" }
+serde = { workspace = true, features = ["derive"] }
+serde_yaml.workspace = true
+thiserror.workspace = true
