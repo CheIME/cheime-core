@@ -13,6 +13,7 @@ cheime-dictionary = { path = "../cheime-dictionary" }
 cheime-model = { path = "../cheime-model" }
 cheime-user-data = { path = "../cheime-user-data" }
 parking_lot.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 [dev-dependencies]
 serde_yaml.workspace = true

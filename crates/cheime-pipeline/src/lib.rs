@@ -7,6 +7,7 @@ pub mod filter;
 pub mod key_mapper;
 pub mod normalizer;
 pub mod processor;
+pub mod punctuator;
 pub mod ranker;
 pub mod segmentor;
 pub mod simplifier;
@@ -21,6 +22,8 @@ pub enum PipelineIntent {
     None,
     Cancel,
     CommitHighlighted,
+    /// Commit a specific text directly (used by punctuator for single-commit symbols).
+    CommitText(String),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -44,19 +47,19 @@ pub trait InputPipeline: Send + Sync {
 // ── Component traits ────────────────────────────────────────────────
 
 /// Result of processing a key event.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ProcessorOutput {
-    /// The new composition text after processing.
     pub composition: String,
-    /// What the user intends (cancel / commit).
     pub intent: PipelineIntent,
-    /// True if the event was fully consumed — skip segment/translate/rank.
     pub consumed: bool,
+    /// Candidates injected by the processor (e.g. punctuator symbol expansion).
+    /// Appended before translator candidates.
+    pub inject_candidates: Vec<Candidate>,
 }
 
-pub trait Processor: Send + Sync {
+pub trait Processor: Send {
     fn process(
-        &self,
+        &mut self,
         composition: &str,
         event: &KeyEvent,
     ) -> Result<ProcessorOutput, PipelineError>;
@@ -105,7 +108,7 @@ pub trait Ranker: Send + Sync {
 
 // ── ComposablePipeline ──────────────────────────────────────────────
 pub struct ComposablePipeline {
-    processor: Box<dyn Processor>,
+    processor: parking_lot::Mutex<Box<dyn Processor>>,
     segmentor: Box<dyn Segmentor>,
     normalizer: Option<Box<dyn CodeNormalizer>>,
     translators: Vec<Box<dyn Translator>>,
@@ -121,7 +124,7 @@ impl ComposablePipeline {
         translators: Vec<Box<dyn Translator>>, filters: Vec<Box<dyn Filter>>,
         ranker: Box<dyn Ranker>,
     ) -> Self {
-        Self { processor, segmentor, normalizer, translators, filters, ranker, key_mapper: None }
+        Self { processor: parking_lot::Mutex::new(processor), segmentor, normalizer, translators, filters, ranker, key_mapper: None }
     }
 
     pub fn with_key_mapper(mut self, km: Box<dyn KeyMapper>) -> Self {
@@ -150,21 +153,21 @@ impl InputPipeline for ComposablePipeline {
         self.apply_internal(composition, event)
     }
 }
-
 impl ComposablePipeline {
     fn apply_internal(&self, composition: &str, event: &KeyEvent) -> Result<PipelineUpdate, PipelineError> {
-        let proc = self.processor.process(composition, event)?;
-        if proc.consumed {
-            return Ok(PipelineUpdate { composition: proc.composition, candidates: vec![], intent: proc.intent });
+        let mut proc = self.processor.lock();
+        let proc_out = proc.process(composition, event)?;
+        if proc_out.consumed {
+            return Ok(PipelineUpdate { composition: proc_out.composition, candidates: vec![], intent: proc_out.intent });
         }
-        let segments = self.segmentor.segment(&proc.composition);
+        let segments = self.segmentor.segment(&proc_out.composition);
         let variants: Vec<CodeSegment> = if let Some(n) = &self.normalizer {
             segments.iter().flat_map(|s| n.normalize(s)).collect()
         } else { segments };
-        let mut candidates = Vec::new();
+        let mut candidates = proc_out.inject_candidates;
         for t in &self.translators { candidates.extend(t.translate(&variants)); }
         for f in &self.filters { candidates = f.filter(candidates); }
         candidates = self.ranker.rank(candidates);
-        Ok(PipelineUpdate { composition: proc.composition, candidates, intent: proc.intent })
+        Ok(PipelineUpdate { composition: proc_out.composition, candidates, intent: proc_out.intent })
     }
 }

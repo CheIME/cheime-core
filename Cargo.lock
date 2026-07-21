@@ -184,6 +184,7 @@ dependencies = [
  "cheime-user-data",
  "criterion",
  "parking_lot",
+ "serde_json",
  "serde_yaml",
  "thiserror",
 ]

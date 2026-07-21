@@ -31,6 +31,9 @@ pub struct SchemaConfig {
 
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extends: Vec<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub punctuator: Option<PunctuatorConfig>,
 }
 
 fn default_version() -> u32 {
@@ -137,9 +140,9 @@ pub struct KeyBinding {
 #[serde(deny_unknown_fields)]
 pub struct PunctuatorConfig {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub full_shape: BTreeMap<String, serde_yaml::Value>,
+    pub full_shape: BTreeMap<String, serde_json::Value>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub half_shape: BTreeMap<String, serde_yaml::Value>,
+    pub half_shape: BTreeMap<String, serde_json::Value>,
 }
 
 // ── Segmentor configs ───────────────────────────────────────────────
@@ -397,9 +400,7 @@ fn default_page_size() -> usize {
 fn default_true() -> bool {
     true
 }
-
 // ── Tests ───────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;

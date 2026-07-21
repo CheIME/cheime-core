@@ -1,6 +1,6 @@
 use crate::{CodeSegment, ComposablePipeline, Filter, Processor, Ranker, Segmentor, Translator};
 use crate::simplifier::{Conversion, SimplifierFilter};
-use cheime_config::schema::{EngineConfig, FilterConfig, ProcessorConfig, SchemaConfig, SegmentorConfig};
+use cheime_config::schema::{EngineConfig, FilterConfig, SchemaConfig, SegmentorConfig};
 use cheime_dictionary::CompiledIndex;
 use cheime_user_data::UserStore;
 use parking_lot::Mutex;
@@ -25,16 +25,19 @@ pub struct PipelineFactory;
 impl PipelineFactory {
     pub fn build(config: &SchemaConfig, user_store: Option<Arc<Mutex<UserStore>>>, dict_index: Option<Arc<CompiledIndex>>, key_mapper: Option<Box<dyn crate::key_mapper::KeyMapper>>) -> Result<ComposablePipeline, BuildError> {
         let mut p = ComposablePipeline::new(
-            Self::build_processor(&config.engine)?, Self::build_segmentor(&config.engine)?,
+            Self::build_processor(config)?, Self::build_segmentor(&config.engine)?,
             None,
             Self::build_translators(&config.engine, user_store, dict_index)?,
             Self::build_filters(&config.engine)?, Self::build_ranker());
         if let Some(km) = key_mapper { p = p.with_key_mapper(km); }
         Ok(p)
     }
-    fn build_processor(e: &EngineConfig) -> Result<Box<dyn Processor>, BuildError> {
-        for p in &e.processors { if matches!(p, ProcessorConfig::AsciiComposer(_) | ProcessorConfig::Speller) { return Ok(Box::new(DefaultProcessor::new())); } }
-        Ok(Box::new(DefaultProcessor::new()))
+    fn build_processor(config: &SchemaConfig) -> Result<Box<dyn Processor>, BuildError> {
+        let inner: Box<dyn Processor> = Box::new(DefaultProcessor::new());
+        if let Some(ref punct) = config.punctuator {
+            return Ok(Box::new(crate::punctuator::PunctProcessor::new(punct, false, inner)));
+        }
+        Ok(inner)
     }
     fn build_segmentor(e: &EngineConfig) -> Result<Box<dyn Segmentor>, BuildError> {
         for s in &e.segmentors { if matches!(s, SegmentorConfig::PinyinSyllable) { return Ok(Box::new(PinyinSegmentor::new())); } }

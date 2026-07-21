@@ -114,6 +114,7 @@ impl<P: InputPipeline> Session<P> {
         match update.intent {
             PipelineIntent::CommitHighlighted => self.propose_commit(),
             PipelineIntent::Cancel => self.propose_cancel(),
+            PipelineIntent::CommitText(text) => self.propose_commit_text(&text),
             PipelineIntent::None => {
                 self.revision = self.revision.next().ok_or(SessionError::RevisionOverflow)?;
                 self.composition = update.composition;
@@ -248,13 +249,21 @@ impl<P: InputPipeline> Session<P> {
         );
         Ok(vec![self.action_message(action)])
     }
-
-    // ── Action result handling ────────────────────────────────────────
-
+    fn propose_commit_text(&mut self, text: &str) -> Result<Vec<EngineMessage>, SessionError> {
+        let action = self.new_action(
+            PlatformActionKind::Commit { text: text.to_owned() },
+            PendingEffect::ClearComposition,
+        );
+        Ok(vec![
+            self.action_message(action),
+            self.snapshot_message(SessionStatus::CommitPending),
+        ])
+    }
     fn handle_action_result(
         &mut self,
         result: cheime_model::PlatformActionResult,
     ) -> Result<Vec<EngineMessage>, SessionError> {
+
         let effect = self
             .pending
             .remove(&result.action_id)

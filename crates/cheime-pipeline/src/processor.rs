@@ -16,19 +16,18 @@ impl DefaultProcessor {
 }
 
 impl Processor for DefaultProcessor {
-    fn process(
-        &self,
+    fn process(&mut self,
         composition: &str,
         event: &KeyEvent,
     ) -> Result<ProcessorOutput, PipelineError> {
         let mut next = composition.to_owned();
         let (intent, consumed) = match event.key {
-            Key::Character(character) if character.is_ascii_lowercase() => {
-                next.push(character);
+            Key::Character(c) if c.is_ascii_lowercase() || c.is_ascii_digit() => {
+                next.push(c);
                 (PipelineIntent::None, false)
             }
-            Key::Character(character) => {
-                return Err(PipelineError::UnsupportedCharacter(character));
+            Key::Character(c) => {
+                return Err(PipelineError::UnsupportedCharacter(c));
             }
             Key::Backspace => {
                 next.pop();
@@ -42,6 +41,7 @@ impl Processor for DefaultProcessor {
             composition: next,
             intent,
             consumed,
+            inject_candidates: vec![],
         })
     }
 }
@@ -49,9 +49,8 @@ impl Processor for DefaultProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PipelineIntent;
+    use crate::{PipelineError, PipelineIntent};
     use cheime_model::{Key, KeyEvent, KeyState};
-
     fn key(k: Key) -> KeyEvent {
         KeyEvent {
             key: k,

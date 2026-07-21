@@ -11,6 +11,6 @@ pub use error::ConfigError;
 pub use layer::ConfigLayer;
 pub use merge::ConfigLoader;
 pub use schema::{
-    EngineConfig, MenuConfig, SchemaConfig, SpellerAlgebra, SpellerConfig, SwitchConfig,
-    SwitchGroup,
+    EngineConfig, MenuConfig, PunctuatorConfig, SchemaConfig, SpellerAlgebra, SpellerConfig,
+    SwitchConfig, SwitchGroup,
 };
