@@ -540,4 +540,78 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn page_navigation_at_boundaries() {
+        let mut session = Session::new(initial_header(), pipeline());
+        // No candidates yet — previous/next page should no-op gracefully
+        let output = session
+            .handle(ui_message(1, 0, UiCommand::PreviousPage))
+            .unwrap();
+        // Should still get a snapshot
+        assert_eq!(output.len(), 1);
+        let snapshot = match &output[0] {
+            EngineMessage::CandidateSnapshot { snapshot, .. } => snapshot,
+            other => panic!("expected snapshot, got {other:?}"),
+        };
+        assert_eq!(snapshot.page, 0);
+
+        // NextPage on empty candidates likewise should be safe
+        let output = session
+            .handle(ui_message(2, 0, UiCommand::NextPage))
+            .unwrap();
+        let snapshot = match &output[0] {
+            EngineMessage::CandidateSnapshot { snapshot, .. } => snapshot,
+            other => panic!("expected snapshot, got {other:?}"),
+        };
+        assert_eq!(snapshot.page, 0);
+
+        // Now type something to get candidates
+        session.handle(key_message(3, 0, Key::Character('n'))).unwrap();
+        session.handle(key_message(4, 1, Key::Character('i'))).unwrap();
+        // 3 candidates, page_size=9 → 1 page. Page down at last page should clamp.
+        let output = session
+            .handle(ui_message(5, 2, UiCommand::NextPage))
+            .unwrap();
+        let snapshot = match &output[0] {
+            EngineMessage::CandidateSnapshot { snapshot, .. } => snapshot,
+            other => panic!("expected snapshot, got {other:?}"),
+        };
+        assert_eq!(snapshot.page, 0); // only 1 page
+    }
+
+    #[test]
+    fn commit_with_empty_candidates() {
+        // Create a session with a minimal pipeline that has no dictionary
+        let mut session = Session::new(
+            initial_header(),
+            BuiltinPipeline::new([]),
+        );
+        // With no candidates, proposing a commit should fail
+        let result = session.handle(key_message(1, 0, Key::Enter));
+        assert!(matches!(result, Err(SessionError::NoCandidate)));
+    }
+
+    #[test]
+    fn highlight_wraps_on_page_navigation() {
+        let mut session = Session::new(initial_header(), pipeline());
+        session.handle(key_message(1, 0, Key::Character('n'))).unwrap();
+        session.handle(key_message(2, 1, Key::Character('i'))).unwrap();
+        // 3 candidates, page_size=9 → all on page 0
+        // Move highlight to candidate #2 (index 2)
+        session
+            .handle(ui_message(3, 2, UiCommand::MoveHighlight(2)))
+            .unwrap();
+        // Now highlighted_idx is 2, page is 0
+        let output = session
+            .handle(ui_message(4, 2, UiCommand::NextPage))
+            .unwrap();
+        let snapshot = match &output[0] {
+            EngineMessage::CandidateSnapshot { snapshot, .. } => snapshot,
+            other => panic!("expected snapshot, got {other:?}"),
+        };
+        // Page unchanged (only 1 page), but highlighted resets to page start
+        assert_eq!(snapshot.page, 0);
+        assert_eq!(snapshot.highlighted, Some(CandidateId::new(1)));
+    }
 }

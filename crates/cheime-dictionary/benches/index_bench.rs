@@ -91,6 +91,45 @@ fn real_index() -> &'static (CompiledIndex, Vec<String>) {
     })
 }
 
+// ── Rime Ice dictionary loading (539K entries, stress test) ──────────
+
+static RIME_ICE_INDEX: OnceLock<(CompiledIndex, Vec<String>)> = OnceLock::new();
+
+fn rime_ice_index() -> &'static (CompiledIndex, Vec<String>) {
+    RIME_ICE_INDEX.get_or_init(|| {
+        let raw = include_str!("../../../data/dicts/rime_ice_base.dict.yaml");
+        let body = dict_body(raw);
+        let columns = &[DictColumn::Text, DictColumn::Code, DictColumn::Weight];
+
+        let entries = parse_body(body, columns).expect("failed to parse rime_ice body");
+        let count = entries.len();
+        let index = CompiledIndex::build(entries, DeploymentGeneration::new(1));
+
+        let mut codes: Vec<String> = Vec::with_capacity(count / 4);
+        let mut seen = String::new();
+        for line in body.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            if let Some(code) = trimmed.split('\t').nth(1) {
+                if seen != code {
+                    codes.push(code.to_owned());
+                    seen = code.to_owned();
+                }
+            }
+        }
+
+        eprintln!(
+            "loaded rime_ice: {} entries, {} unique codes, {} entries in index",
+            count,
+            codes.len(),
+            index.total_entries,
+        );
+        (index, codes)
+    })
+}
+
 // ── Dict: build benchmarks ──────────────────────────────────────────
 
 fn bench_build_real_dict(c: &mut Criterion) {
@@ -175,6 +214,62 @@ fn bench_query_miss(c: &mut Criterion) {
 fn bench_query_all_codes(c: &mut Criterion) {
     let (index, codes) = real_index();
     c.bench_function("dict/query_all_codes_batch", |b| {
+        b.iter(|| {
+            for code in codes {
+                black_box(index.query(black_box(code.as_str())));
+            }
+        })
+    });
+}
+
+// ── Dict: rime_ice stress benchmarks (539K entries) ──────────────────
+
+fn bench_build_rime_ice_539k(c: &mut Criterion) {
+    let raw = include_str!("../../../data/dicts/rime_ice_base.dict.yaml");
+    let body = dict_body(raw);
+    let columns = &[DictColumn::Text, DictColumn::Code, DictColumn::Weight];
+
+    c.bench_function("dict/build_rime_ice_539k", |b| {
+        b.iter(|| {
+            let entries = parse_body(black_box(body), black_box(columns)).unwrap();
+            black_box(CompiledIndex::build(
+                entries,
+                black_box(DeploymentGeneration::new(1)),
+            ))
+        })
+    });
+}
+
+fn bench_query_rime_ice_short(c: &mut Criterion) {
+    let (index, _codes) = rime_ice_index();
+    c.bench_function("dict/query_rime_ice_short", |b| {
+        b.iter(|| {
+            black_box(index.query(black_box("ni hao")))
+        })
+    });
+}
+
+fn bench_query_rime_ice_long(c: &mut Criterion) {
+    let (index, _codes) = rime_ice_index();
+    c.bench_function("dict/query_rime_ice_long", |b| {
+        b.iter(|| {
+            black_box(index.query(black_box("zhong hua ren min gong he guo")))
+        })
+    });
+}
+
+fn bench_query_rime_ice_miss(c: &mut Criterion) {
+    let (index, _codes) = rime_ice_index();
+    c.bench_function("dict/query_rime_ice_miss", |b| {
+        b.iter(|| {
+            black_box(index.query(black_box("zzz zzz")))
+        })
+    });
+}
+
+fn bench_query_rime_ice_all_codes(c: &mut Criterion) {
+    let (index, codes) = rime_ice_index();
+    c.bench_function("dict/query_rime_ice_all_codes", |b| {
         b.iter(|| {
             for code in codes {
                 black_box(index.query(black_box(code.as_str())));
@@ -395,6 +490,7 @@ criterion_group!(
     dict_build,
     bench_build_real_dict,
     bench_build_synthetic_100k,
+    bench_build_rime_ice_539k,
 );
 
 criterion_group!(
@@ -424,5 +520,12 @@ criterion_group!(
     bench_combined_segment_and_query,
     bench_combined_segment_and_query_long,
 );
+criterion_group!(
+    rime_ice,
+    bench_query_rime_ice_short,
+    bench_query_rime_ice_long,
+    bench_query_rime_ice_miss,
+    bench_query_rime_ice_all_codes,
+);
 
-criterion_main!(dict_build, dict_query, dict_typing, segmentation, combined);
+criterion_main!(dict_build, dict_query, dict_typing, segmentation, combined, rime_ice);

@@ -544,4 +544,96 @@ mod tests {
         store.confirm_all_pending();
         assert_eq!(store.frequency("qp", "你好"), 1);
     }
+
+    // ── Concurrency ─────────────────────────────────────────────
+
+    #[test]
+    fn concurrent_reads_do_not_deadlock() {
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+
+        let mut store = UserStore::new("concurrent-test");
+        store.apply(UserEvent::learn_word("test", "qp", "你好", "nh"));
+        store.apply(UserEvent::learn_word("test", "qp", "世界", "sj"));
+
+        let shared = Arc::new(parking_lot::Mutex::new(store));
+        let barrier = Arc::new(Barrier::new(5));
+
+        let mut handles = Vec::new();
+        for _ in 0..4 {
+            let s = Arc::clone(&shared);
+            let b = Arc::clone(&barrier);
+            handles.push(thread::spawn(move || {
+                b.wait();
+                for _ in 0..50 {
+                    let store = s.lock();
+                    let _r = store.query("nh");
+                    drop(store);
+                }
+            }));
+        }
+
+        // Writer thread
+        let s = Arc::clone(&shared);
+        let b = Arc::clone(&barrier);
+        let writer = thread::spawn(move || {
+            b.wait();
+            for i in 0..50 {
+                let mut store = s.lock();
+                store.apply(UserEvent::learn_word(
+                    "test", "qp",
+                    &format!("word_{i}"), "wd",
+                ));
+                drop(store);
+            }
+        });
+
+        for h in handles {
+            h.join().unwrap();
+        }
+        writer.join().unwrap();
+
+        // Verify store is still usable
+        let store = shared.lock();
+        let r = store.query("nh");
+        assert!(!r.is_empty());
+    }
+
+    #[test]
+    fn concurrent_writes_are_serialized() {
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+
+        let store = UserStore::new("concurrent-writes");
+        let shared = Arc::new(parking_lot::Mutex::new(store));
+        let barrier = Arc::new(Barrier::new(4));
+
+        let mut handles = Vec::new();
+        for t in 0..4 {
+            let s = Arc::clone(&shared);
+            let b = Arc::clone(&barrier);
+            handles.push(thread::spawn(move || {
+                b.wait();
+                for i in 0..25 {
+                    let mut store = s.lock();
+                    store.apply(UserEvent::learn_word(
+                        "test", "qp",
+                        &format!("thread{t}_word{i}"), "wd",
+                    ));
+                    drop(store);
+                }
+            }));
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        let store = shared.lock();
+        // 4 threads × 25 events each = 100 events
+        assert_eq!(store.events().len(), 100);
+        // All 100 words should be queryable
+        let results = store.query("wd");
+        assert_eq!(results.len(), 100);
+    }
 }

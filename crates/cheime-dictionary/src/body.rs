@@ -113,4 +113,43 @@ mod tests {
         let entries = parse_body(body, &columns).unwrap();
         assert_eq!(entries.len(), 2);
     }
+
+    #[test]
+    fn empty_body_returns_empty() {
+        let columns = [DictColumn::Text, DictColumn::Code];
+        let entries = parse_body("", &columns).unwrap();
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn malformed_line_is_reported() {
+        let columns = [DictColumn::Text, DictColumn::Code];
+        // only one tab-separated field, but we expect 2 columns
+        let err = parse_body("你好\n", &columns).unwrap_err();
+        assert!(matches!(
+            err,
+            BodyError::ColumnCount {
+                expected: 2, got: 1, ..
+            }
+        ));
+    }
+
+    #[test]
+    fn zero_weight_entry_is_ok() {
+        let columns = [DictColumn::Text, DictColumn::Code, DictColumn::Weight];
+        let entries = parse_body("你\tni\t0\n", &columns).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].weight, Some(0));
+    }
+
+    #[test]
+    fn duplicate_code_preserves_all_entries() {
+        let columns = [DictColumn::Text, DictColumn::Code];
+        let entries = parse_body("你\tni\n您\tni\n", &columns).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].text, "你");
+        assert_eq!(entries[0].code, "ni");
+        assert_eq!(entries[1].text, "您");
+        assert_eq!(entries[1].code, "ni");
+    }
 }

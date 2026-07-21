@@ -168,6 +168,7 @@ name = "cheime-model"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -191,6 +192,7 @@ version = "0.1.0"
 dependencies = [
  "cheime-model",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 

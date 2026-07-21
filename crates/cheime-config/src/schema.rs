@@ -532,4 +532,67 @@ engine: {}
         let config: SchemaConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.extends, vec!["base_pinyin", "shared/common"]);
     }
+
+    #[test]
+    fn unknown_field_in_engine_is_rejected() {
+        let yaml = r#"
+schema_version: 1
+engine:
+  processors: []
+  unknown_engine_field: "should fail"
+"#;
+        let result: Result<SchemaConfig, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn unknown_field_in_filter_is_rejected() {
+        let yaml = r#"
+schema_version: 1
+engine:
+  processors: []
+  filters:
+    - type: simplifier
+      opencc_config: s2t.json
+      bogus_option: true
+"#;
+        let result: Result<SchemaConfig, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn unknown_processor_type_is_rejected() {
+        let yaml = r#"
+schema_version: 1
+engine:
+  processors:
+    - type: imaginary_processor
+"#;
+        let result: Result<SchemaConfig, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn unknown_segmentor_type_is_rejected() {
+        let yaml = r#"
+schema_version: 1
+engine:
+  segmentors:
+    - type: imaginary_segmentor
+"#;
+        let result: Result<SchemaConfig, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn unknown_translator_type_is_rejected() {
+        let yaml = r#"
+schema_version: 1
+engine:
+  translators:
+    - type: imaginary_translator
+"#;
+        let result: Result<SchemaConfig, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err());
+    }
 }

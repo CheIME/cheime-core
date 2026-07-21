@@ -137,3 +137,6 @@ mod tests {
         assert_eq!(message.header(), &header());
     }
 }
+
+#[cfg(test)]
+mod serde_tests;
