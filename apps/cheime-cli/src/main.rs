@@ -25,7 +25,7 @@ fn main() {
     let config: cheime_config::schema::SchemaConfig =
         serde_yaml::from_str("schema_version: 1\nengine: {}\n").unwrap();
     let dict_index = load_dict();
-    let pipeline = PipelineFactory::build(&config, Some(store.clone()), Some(dict_index)).unwrap();
+    let pipeline = PipelineFactory::build(&config, Some(store.clone()), Some(dict_index), None).unwrap();
 
     let header = MessageHeader {
         protocol_version: CORE_PROTOCOL_VERSION, client: ClientInstanceId::new(1),

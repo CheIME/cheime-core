@@ -9,12 +9,11 @@ pub mod processor;
 pub mod ranker;
 pub mod segmentor;
 pub mod translator;
-use cheime_model::{Candidate, KeyEvent};
 use crate::normalizer::CodeNormalizer;
 use thiserror::Error;
-
 pub use builtin::BuiltinPipeline;
-
+use cheime_model::{Candidate, Key, KeyEvent};
+use crate::key_mapper::KeyMapper;
 // ── Composable pipeline traits ──────────────────────────────────────
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -110,6 +109,7 @@ pub struct ComposablePipeline {
     translators: Vec<Box<dyn Translator>>,
     filters: Vec<Box<dyn Filter>>,
     ranker: Box<dyn Ranker>,
+    key_mapper: Option<parking_lot::Mutex<Box<dyn KeyMapper>>>,
 }
 
 impl ComposablePipeline {
@@ -119,53 +119,50 @@ impl ComposablePipeline {
         translators: Vec<Box<dyn Translator>>, filters: Vec<Box<dyn Filter>>,
         ranker: Box<dyn Ranker>,
     ) -> Self {
-        Self { processor, segmentor, normalizer, translators, filters, ranker }
+        Self { processor, segmentor, normalizer, translators, filters, ranker, key_mapper: None }
+    }
+
+    pub fn with_key_mapper(mut self, km: Box<dyn KeyMapper>) -> Self {
+        self.key_mapper = Some(parking_lot::Mutex::new(km));
+        self
     }
 }
 
 impl InputPipeline for ComposablePipeline {
-    fn apply(
-        &self,
-        composition: &str,
-        event: &KeyEvent,
-    ) -> Result<PipelineUpdate, PipelineError> {
-        // 1. Processor — key handling
-        let proc = self.processor.process(composition, event)?;
-
-        if proc.consumed {
-            // Action handled entirely by processor (e.g. Escape cancel).
-            return Ok(PipelineUpdate {
-                composition: proc.composition,
-                candidates: Vec::new(),
-                intent: proc.intent,
-            });
+    fn apply(&self, composition: &str, event: &KeyEvent) -> Result<PipelineUpdate, PipelineError> {
+        if let Some(km) = &self.key_mapper {
+            let mut km = km.lock();
+            let mapped = km.map(event);
+            if mapped.consumed {
+                return Ok(PipelineUpdate { composition: composition.to_owned(), candidates: vec![], intent: PipelineIntent::None });
+            }
+            let mut comp = composition.to_owned();
+            let mut last = PipelineUpdate { composition: comp.clone(), candidates: vec![], intent: PipelineIntent::None };
+            for ch in &mapped.characters {
+                let ke = KeyEvent { key: Key::Character(*ch), state: event.state };
+                last = self.apply_internal(&comp, &ke)?;
+                comp = last.composition.clone();
+            }
+            return Ok(last);
         }
+        self.apply_internal(composition, event)
+    }
+}
 
-        // 2. Segmentor — split composition into code units
+impl ComposablePipeline {
+    fn apply_internal(&self, composition: &str, event: &KeyEvent) -> Result<PipelineUpdate, PipelineError> {
+        let proc = self.processor.process(composition, event)?;
+        if proc.consumed {
+            return Ok(PipelineUpdate { composition: proc.composition, candidates: vec![], intent: proc.intent });
+        }
         let segments = self.segmentor.segment(&proc.composition);
-
-        // 2.5 Normalizer — expand segments into fuzzy/spelling variants
         let variants: Vec<CodeSegment> = if let Some(n) = &self.normalizer {
             segments.iter().flat_map(|s| n.normalize(s)).collect()
-        } else {
-            segments
-        };
-
-        // 3. Translators — collect candidates per variant
-        let mut candidates: Vec<Candidate> = Vec::new();
-        for seg in &variants {
-            for translator in &self.translators {
-                candidates.extend(translator.translate(seg));
-            }
-        }
-
-        // 5. Ranker — sort
+        } else { segments };
+        let mut candidates = Vec::new();
+        for seg in &variants { for t in &self.translators { candidates.extend(t.translate(seg)); } }
+        for f in &self.filters { candidates = f.filter(candidates); }
         candidates = self.ranker.rank(candidates);
-
-        Ok(PipelineUpdate {
-            composition: proc.composition,
-            candidates,
-            intent: proc.intent,
-        })
+        Ok(PipelineUpdate { composition: proc.composition, candidates, intent: proc.intent })
     }
 }

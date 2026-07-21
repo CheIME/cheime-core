@@ -22,12 +22,14 @@ impl Segmentor for PassthroughSegmentor {
 pub struct PipelineFactory;
 
 impl PipelineFactory {
-    pub fn build(config: &SchemaConfig, user_store: Option<Arc<Mutex<UserStore>>>, dict_index: Option<Arc<CompiledIndex>>) -> Result<ComposablePipeline, BuildError> {
-        Ok(ComposablePipeline::new(
+    pub fn build(config: &SchemaConfig, user_store: Option<Arc<Mutex<UserStore>>>, dict_index: Option<Arc<CompiledIndex>>, key_mapper: Option<Box<dyn crate::key_mapper::KeyMapper>>) -> Result<ComposablePipeline, BuildError> {
+        let mut p = ComposablePipeline::new(
             Self::build_processor(&config.engine)?, Self::build_segmentor(&config.engine)?,
-            None, // normalizer — configurable later
+            None,
             Self::build_translators(&config.engine, user_store, dict_index)?,
-            Self::build_filters(&config.engine)?, Self::build_ranker()))
+            Self::build_filters(&config.engine)?, Self::build_ranker());
+        if let Some(km) = key_mapper { p = p.with_key_mapper(km); }
+        Ok(p)
     }
     fn build_processor(e: &EngineConfig) -> Result<Box<dyn Processor>, BuildError> {
         for p in &e.processors { if matches!(p, ProcessorConfig::AsciiComposer(_) | ProcessorConfig::Speller) { return Ok(Box::new(DefaultProcessor::new())); } }
@@ -67,13 +69,13 @@ mod tests {
     use cheime_config::schema::SchemaConfig; use cheime_model::{Key, KeyEvent};
     fn conf(y: &str) -> SchemaConfig { serde_yaml::from_str(y).unwrap() }
     #[test] fn empty_config_works() {
-        let p = PipelineFactory::build(&conf("schema_version: 1\nengine: {}\n"), None, None).unwrap();
+        let p = PipelineFactory::build(&conf("schema_version: 1\nengine: {}\n"), None, None, None).unwrap();
         let r = p.apply("", &KeyEvent { key: Key::Character('n'), state: Default::default() }).unwrap();
         assert_eq!(r.composition, "n");
     }
     #[test] fn user_word_first() {
         let mut s = UserStore::new("t"); s.apply(cheime_user_data::UserEvent::learn_word("t", "qp", "你", "ni"));
-        let p = PipelineFactory::build(&conf("schema_version: 1\nengine: {}\n"), Some(Arc::new(Mutex::new(s))), None).unwrap();
+        let p = PipelineFactory::build(&conf("schema_version: 1\nengine: {}\n"), Some(Arc::new(Mutex::new(s))), None, None).unwrap();
         let r = p.apply("n", &KeyEvent { key: Key::Character('i'), state: Default::default() }).unwrap();
         assert!(!r.candidates.is_empty()); assert_eq!(r.candidates[0].text, "你");
     }

@@ -1,185 +1,119 @@
 //! Key mapper: translates physical key events into logical input characters.
 //!
-//! This is the first stage of the unified input model (DRAFT §6).
-//! Different input schemes replace this component:
-//!
-//! | Scheme      | KeyMapper         |
-//! |-------------|-------------------|
-//! | QuanPin     | Passthrough (a-z) |
-//! | Flypy (小鹤)| 2-key → pinyin    |
-//! | MSPY (微软) | 2-key → pinyin    |
-//! | Wubi        | Multi-key → shape |
+//! DRAFT §6 unified input model — first pipeline stage.
+//! Different input schemes swap this component.
 
 use cheime_model::{Key, KeyEvent};
 
-/// Result of key mapping.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct KeyMapResult {
-    /// The logical character produced by the mapper.
-    pub character: Option<char>,
-    /// Whether the key was consumed (don't pass to further processing).
+    pub characters: Vec<char>,
     pub consumed: bool,
 }
 
-/// Maps physical key events to logical input characters.
 pub trait KeyMapper: Send + Sync {
-    fn map(&self, event: &KeyEvent) -> KeyMapResult;
+    fn map(&mut self, event: &KeyEvent) -> KeyMapResult;
 }
 
 // ── QuanPin (全拼) ─────────────────────────────────────────────────
 
-/// Passthrough mapper — ASCII lowercase letters pass through unchanged.
 #[derive(Clone, Debug, Default)]
 pub struct QuanPinMapper;
 
 impl KeyMapper for QuanPinMapper {
-    fn map(&self, event: &KeyEvent) -> KeyMapResult {
+    fn map(&mut self, event: &KeyEvent) -> KeyMapResult {
         match event.key {
             Key::Character(ch) if ch.is_ascii_lowercase() => KeyMapResult {
-                character: Some(ch),
-                consumed: false,
+                characters: vec![ch], consumed: false,
             },
             _ => KeyMapResult::default(),
         }
     }
 }
 
-// ── Flypy (小鹤双拼) ───────────────────────────────────────────────
+// ── Flypy (小鹤双拼) state machine ──────────────────────────────────
+//
+// 2-keystroke → full pinyin syllable.
+// State 0: waiting for initial consonant.
+// State 1: waiting for final.
 
-/// Xiaohe double-pinyin (小鹤双拼) key mapping.
-///
-/// Each consonant key maps to its pinyin initial. Each vowel key maps
-/// to a complete pinyin final. Two keystrokes = one syllable.
-///
-/// Reference: https://github.com/rime/rime-double-pinyin (flypy layout)
 #[derive(Clone, Debug, Default)]
 pub struct FlypyMapper {
-    /// Buffered initial character, waiting for final key.
-    buffer: Option<char>,
+    state: u8,
+    /// Buffered initial characters (e.g., "zh" from 'v').
+    buffer: Vec<char>,
 }
 
 impl FlypyMapper {
-    pub fn new() -> Self {
-        Self { buffer: None }
-    }
+    pub fn new() -> Self { Self { state: 0, buffer: Vec::new() } }
 
-    /// Map a consonant key to its pinyin initial.
-    fn map_initial(ch: char) -> Option<char> {
-        match ch {
-            'b' | 'p' | 'm' | 'f' | 'd' | 't' | 'n' | 'l' | 'g' | 'k' | 'h' | 'j'
-            | 'q' | 'x' | 'r' | 'z' | 'c' | 's' | 'y' | 'w' => Some(ch),
-            // Flypy special: v→zh, i→ch, u→sh
-            'v' => Some('z'), // zh initial → we emit 'z', final handles 'h'
-            'i' => Some('c'), // ch initial
-            'u' => Some('s'), // sh initial
-            _ => None,
-        }
-    }
-
-    /// Map a key to its pinyin final (complete syllable rhyme).
-    /// Returns the full final string.
-    fn map_final(ch: char) -> Option<&'static str> {
+    fn initial_chars(ch: char) -> Option<Vec<char>> {
         Some(match ch {
-            'a' => "a",
-            'b' => "in",
-            'c' => "ao",
-            'd' => "ai",
-            'e' => "e",
-            'f' => "en",
-            'g' => "eng",
-            'h' => "ang",
-            'i' => "i",
-            'j' => "an",
-            'k' => "ing",
-            'l' => "uang",
-            'm' => "ian",
-            'n' => "iao",
-            'o' => "uo",
-            'p' => "ie",
-            'q' => "iu",
-            'r' => "uan",
-            's' => "ong",
-            't' => "ue",
-            'u' => "u",
-            'v' => "ui",
-            'w' => "ei",
-            'x' => "ia",
-            'y' => "un",
-            'z' => "ou",
-            // Zero-initial finals (type 'o' first then the final key)
+            'b' => vec!['b'], 'p' => vec!['p'], 'm' => vec!['m'], 'f' => vec!['f'],
+            'd' => vec!['d'], 't' => vec!['t'], 'n' => vec!['n'], 'l' => vec!['l'],
+            'g' => vec!['g'], 'k' => vec!['k'], 'h' => vec!['h'],
+            'j' => vec!['j'], 'q' => vec!['q'], 'x' => vec!['x'],
+            'r' => vec!['r'], 'z' => vec!['z'], 'c' => vec!['c'], 's' => vec!['s'],
+            'y' => vec!['y'], 'w' => vec!['w'],
+            'v' => vec!['z', 'h'], // zh
+            'i' => vec!['c', 'h'], // ch
+            'u' => vec!['s', 'h'], // sh
             _ => return None,
         })
     }
 
-    /// Map a zero-initial final (for future use when buffer is implemented).
-    #[allow(dead_code)]
-    fn map_zero_final(ch: char) -> Option<&'static str> {
-        Self::map_final(ch)
+    fn final_chars(ch: char) -> Option<Vec<char>> {
+        Some(match ch {
+            'a' => vec!['a'], 'e' => vec!['e'], 'i' => vec!['i'],
+            'o' => vec!['o'], 'u' => vec!['u'],
+            'b' => vec!['i', 'n'], 'c' => vec!['a', 'o'], 'd' => vec!['a', 'i'],
+            'f' => vec!['e', 'n'], 'g' => vec!['e', 'n', 'g'], 'h' => vec!['a', 'n', 'g'],
+            'j' => vec!['a', 'n'], 'k' => vec!['i', 'n', 'g'], 'l' => vec!['u', 'a', 'n', 'g'],
+            'm' => vec!['i', 'a', 'n'], 'n' => vec!['i', 'a', 'o'], 'p' => vec!['i', 'e'],
+            'q' => vec!['i', 'u'], 'r' => vec!['u', 'a', 'n'], 's' => vec!['o', 'n', 'g'],
+            't' => vec!['u', 'e'], 'v' => vec!['u', 'i'], 'w' => vec!['e', 'i'],
+            'x' => vec!['i', 'a'], 'y' => vec!['u', 'n'], 'z' => vec!['o', 'u'],
+            _ => return None,
+        })
     }
 }
 
 impl KeyMapper for FlypyMapper {
-    fn map(&self, event: &KeyEvent) -> KeyMapResult {
+    fn map(&mut self, event: &KeyEvent) -> KeyMapResult {
         let ch = match event.key {
             Key::Character(c) if c.is_ascii_lowercase() => c,
             _ => return KeyMapResult::default(),
         };
 
-        if let Some(initial) = self.buffer {
-            // We have a buffered initial, this key is the final
-            let final_str = FlypyMapper::map_final(ch);
-            let result = if let Some(fin) = final_str {
-                // Double-pinyin special handling for zh/ch/sh
-                let _actual_initial = match (initial, fin) {
-                    ('z', _) => "zh",
-                    ('c', _) => "ch",
-                    ('s', _) => "sh",
-                    _ => return KeyMapResult {
-                        character: Some(initial),
-                        consumed: false,
-                    },
-                };
-                // Note: the full syllable construction happens downstream.
-                // For now we emit characters that the segmentor can handle.
-                KeyMapResult {
-                    character: Some(ch),
-                    consumed: false,
-                }
-            } else {
-                KeyMapResult {
-                    character: Some(ch),
-                    consumed: false,
-                }
-            };
-            // Buffer consumed
-            return result;
+        if self.state == 1 {
+            // Waiting for final
+            self.state = 0;
+            if let Some(mut fin) = FlypyMapper::final_chars(ch) {
+                let mut result = std::mem::take(&mut self.buffer);
+                result.append(&mut fin);
+                return KeyMapResult { characters: result, consumed: false };
+            }
+            // Invalid final — flush buffer + current key as-is
+            let mut result = std::mem::take(&mut self.buffer);
+            result.push(ch);
+            return KeyMapResult { characters: result, consumed: false };
         }
 
-        // No buffer — check if this is the zero-initial marker
-        if ch == 'o' {
-            // 'o' is the zero-initial marker. Buffer it and wait for the final.
-            // For simplicity, emit 'o' and let the segmentor handle it.
-            return KeyMapResult {
-                character: Some(ch),
-                consumed: false,
-            };
+        // State 0: waiting for initial
+        if let Some(init) = FlypyMapper::initial_chars(ch) {
+            // Buffer the initial, don't emit yet
+            self.buffer = init;
+            self.state = 1;
+            return KeyMapResult { characters: Vec::new(), consumed: true };
         }
 
-        // Check if this is an initial consonant
-        if FlypyMapper::map_initial(ch).is_some() {
-            // Store in buffer, don't emit yet (real impl would buffer)
-            // For now, just emit the character
-            KeyMapResult {
-                character: Some(ch),
-                consumed: false,
-            }
-        } else {
-            // Likely a final key without an initial
-            KeyMapResult {
-                character: Some(ch),
-                consumed: false,
-            }
+        // Not an initial — try as standalone final (zero-initial syllables like "a", "ai", "an"...)
+        if let Some(fin) = FlypyMapper::final_chars(ch) {
+            return KeyMapResult { characters: fin, consumed: false };
         }
+
+        // Pass through
+        KeyMapResult { characters: vec![ch], consumed: false }
     }
 }
 
@@ -188,46 +122,42 @@ impl KeyMapper for FlypyMapper {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cheime_model::KeyState;
 
-    fn key(ch: char) -> KeyEvent {
-        KeyEvent {
-            key: Key::Character(ch),
-            state: Default::default(),
-        }
-    }
+    fn k(ch: char) -> KeyEvent { KeyEvent { key: Key::Character(ch), state: KeyState::default() } }
 
     #[test]
     fn quanpin_passthrough() {
-        let mapper = QuanPinMapper;
-        assert_eq!(mapper.map(&key('n')).character, Some('n'));
-        assert_eq!(mapper.map(&key('i')).character, Some('i'));
+        let mut m = QuanPinMapper;
+        assert_eq!(m.map(&k('n')).characters, vec!['n']);
+        assert_eq!(m.map(&k('i')).characters, vec!['i']);
     }
 
     #[test]
-    fn quanpin_non_alpha_ignored() {
-        let mapper = QuanPinMapper;
-        let result = mapper.map(&KeyEvent {
-            key: Key::Backspace,
-            state: Default::default(),
-        });
-        assert_eq!(result.character, None);
+    fn flypy_vs_zhong() {
+        let mut m = FlypyMapper::new();
+        // 'v' → zh initial (buffered, state→1)
+        let r1 = m.map(&k('v'));
+        assert!(r1.characters.is_empty());
+        assert!(r1.consumed);
+        // 's' → ong final → emit "zh" + "ong"
+        let r2 = m.map(&k('s'));
+        assert_eq!(r2.characters, vec!['z', 'h', 'o', 'n', 'g']);
     }
 
     #[test]
-    fn flypy_initial_keys() {
-        let _mapper = FlypyMapper::new();
-        assert_eq!(FlypyMapper::map_initial('b'), Some('b'));
-        assert_eq!(FlypyMapper::map_initial('v'), Some('z')); // zh
-        assert_eq!(FlypyMapper::map_initial('i'), Some('c')); // ch
-        assert_eq!(FlypyMapper::map_initial('u'), Some('s')); // sh
+    fn flypy_nj_nan() {
+        let mut m = FlypyMapper::new();
+        m.map(&k('n'));
+        let r2 = m.map(&k('j'));
+        assert_eq!(r2.characters, vec!['n', 'a', 'n']);
     }
 
     #[test]
-    fn flypy_final_keys() {
-        assert_eq!(FlypyMapper::map_final('h'), Some("ang"));
-        assert_eq!(FlypyMapper::map_final('j'), Some("an"));
-        assert_eq!(FlypyMapper::map_final('q'), Some("iu"));
-        assert_eq!(FlypyMapper::map_final('w'), Some("ei"));
-        assert_eq!(FlypyMapper::map_final('p'), Some("ie"));
+    fn flypy_zero_initial_a() {
+        let mut m = FlypyMapper::new();
+        // 'a' as standalone final (zero-initial)
+        let r = m.map(&k('a'));
+        assert_eq!(r.characters, vec!['a']);
     }
 }
