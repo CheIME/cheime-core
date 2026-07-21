@@ -83,12 +83,17 @@ impl DictCache {
         let mut combined_hash_state = String::new();
 
         for file in files {
-            let (fragment, _was_cached) = self.load_or_build_one(file, dict_name, columns)?;
-            combined_hash_state.push_str(&fragment.source_hash);
-            total_entries += fragment.total_entries;
-            // Merge fragment into accumulator
-            for (code, mut entries) in fragment.entries {
-                all_entries.entry(code).or_default().append(&mut entries);
+            match self.load_or_build_one(file, dict_name, columns) {
+                Ok((fragment, _was_cached)) => {
+                    combined_hash_state.push_str(&fragment.source_hash);
+                    total_entries += fragment.total_entries;
+                    for (code, mut entries) in fragment.entries {
+                        all_entries.entry(code).or_default().append(&mut entries);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("warning: skipping {}: {e}", file.display());
+                }
             }
         }
 
