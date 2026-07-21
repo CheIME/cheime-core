@@ -161,7 +161,9 @@ dependencies = [
  "cheime-config",
  "cheime-dictionary",
  "cheime-model",
+ "cheime-user-data",
  "criterion",
+ "parking_lot",
  "serde_yaml",
  "thiserror",
 ]

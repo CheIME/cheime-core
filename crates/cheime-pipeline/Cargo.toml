@@ -10,6 +10,8 @@ repository.workspace = true
 cheime-config = { path = "../cheime-config" }
 cheime-dictionary = { path = "../cheime-dictionary" }
 cheime-model = { path = "../cheime-model" }
+cheime-user-data = { path = "../cheime-user-data" }
+parking_lot.workspace = true
 thiserror.workspace = true
 [dev-dependencies]
 serde_yaml.workspace = true

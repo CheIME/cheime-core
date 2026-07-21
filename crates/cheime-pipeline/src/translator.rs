@@ -55,12 +55,52 @@ impl Translator for PassthroughTranslator {
         }]
     }
 }
+// ── User dictionary ────────────────────────────────────────────────
+
+use cheime_user_data::UserStore;
+use parking_lot::Mutex as PLMutex;
+
+/// Translates segments by querying the user's learned words.
+#[derive(Debug)]
+pub struct UserDictTranslator {
+    store: Arc<PLMutex<UserStore>>,
+}
+
+impl UserDictTranslator {
+    pub fn new(store: Arc<PLMutex<UserStore>>) -> Self {
+        Self { store }
+    }
+}
+
+impl Translator for UserDictTranslator {
+    fn name(&self) -> &str {
+        "user_dict"
+    }
+
+    fn translate(&self, segment: &CodeSegment) -> Vec<Candidate> {
+        let store = self.store.lock();
+        let user_cands = store.query(&segment.code);
+        user_cands
+            .into_iter()
+            .enumerate()
+            .map(|(i, uc)| Candidate {
+                // Use high IDs to avoid collision with dict candidates
+                id: cheime_model::CandidateId::new(1_000_000 + i as u64),
+                text: uc.text,
+                annotation: Some(format!("{}×{}", segment.code, uc.frequency)),
+                source: String::from("user_dict"),
+            })
+            .collect()
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cheime_dictionary::DictEntry;
+    use cheime_dictionary::{CompiledIndex, DictEntry};
     use cheime_model::DeploymentGeneration;
+    use std::sync::Arc;
+
     fn test_index() -> Arc<CompiledIndex> {
         let entries = vec![
             DictEntry {
