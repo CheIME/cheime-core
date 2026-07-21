@@ -8,8 +8,11 @@ repository.workspace = true
 
 [dependencies]
 cheime-model = { path = "../cheime-model" }
+parking_lot.workspace = true
+rusqlite = { version = "0.31", features = ["bundled"] }
 serde.workspace = true
 thiserror.workspace = true
+
 [dev-dependencies]
 criterion.workspace = true
 
