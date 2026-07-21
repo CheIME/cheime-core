@@ -142,4 +142,28 @@ mod tests {
         let r = p.apply("n", &KeyEvent { key: Key::Character('i'), state: Default::default() }).unwrap();
         assert!(!r.candidates.is_empty()); assert_eq!(r.candidates[0].text, "你");
     }
+
+    #[test]
+    fn snapshot_nihao_with_dict() {
+        let raw = include_str!("../../../data/dicts/rime_ice_base.dict.yaml");
+        let body = if let Some(p) = raw.find("\n...\n") { &raw[p + 5..] } else { raw };
+        let cols = &[cheime_dictionary::DictColumn::Text, cheime_dictionary::DictColumn::Code, cheime_dictionary::DictColumn::Weight];
+        let entries = cheime_dictionary::parse_body(body, cols).unwrap();
+        let idx = Arc::new(cheime_dictionary::CompiledIndex::build(entries, cheime_model::DeploymentGeneration::new(1)));
+        let p = PipelineFactory::build(
+            &conf("schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n"), None, Some(idx), None,
+        ).unwrap();
+
+        let mut comp = String::new();
+        for c in "nihao".chars() {
+            let r = p.apply(&comp, &KeyEvent { key: Key::Character(c), state: Default::default() }).unwrap();
+            comp = r.composition;
+            if comp == "nihao" {
+                assert_eq!(r.candidates.len(), 3, "expected 3 candidates for nihao, got {:?}", r.candidates.iter().map(|c| &c.text).collect::<Vec<_>>());
+                assert_eq!(r.candidates[0].text, "你好");
+                assert_eq!(r.candidates[1].text, "拟好");
+                assert!(r.candidates[2].is_emoji, "third candidate should be emoji");
+            }
+        }
+    }
 }
