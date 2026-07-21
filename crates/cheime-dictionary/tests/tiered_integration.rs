@@ -71,8 +71,7 @@ fn group_entries(entries: Vec<cheime_dictionary::DictEntry>) -> Vec<(String, Vec
 fn tiered_index_matches_memory_mode() {
     let files = rime_ice_files();
     if files.is_empty() {
-        eprintln!("SKIP: no rime_ice dict files found");
-        return;
+        panic!("SKIP: no rime_ice dict files found — cannot run integration test");
     }
 
     eprintln!("Loading entries from {} files...", files.len());
@@ -122,7 +121,8 @@ fn tiered_index_matches_memory_mode() {
         if mem.is_empty() && tiered.is_empty() { continue; }
         assert_eq!(mem.len(), tiered.len(), "code '{}' count mismatch", code);
         for (i, (m, t)) in mem.iter().zip(tiered.iter()).enumerate() {
-            assert_eq!(m.text, t.text, "code '{}'[{}] text mismatch: '{}' vs '{}'", code, i, m.text, t.text);
+            assert_eq!(m.text, t.text, "code '{}'[{}] text mismatch", code, i);
+            assert_eq!(m.annotation, t.annotation, "code '{}'[{}] annotation mismatch", code, i);
         }
     }
 
