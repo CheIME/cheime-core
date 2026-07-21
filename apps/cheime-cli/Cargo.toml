@@ -10,8 +10,11 @@ name = "cheime"
 path = "src/main.rs"
 
 [dependencies]
+cheime-config = { path = "../../crates/cheime-config" }
 cheime-model = { path = "../../crates/cheime-model" }
 cheime-pipeline = { path = "../../crates/cheime-pipeline" }
-cheime-session = { path = "../../crates/cheime-session" }
 cheime-protocol = { path = "../../crates/cheime-protocol" }
-cheime-dictionary = { path = "../../crates/cheime-dictionary" }
+cheime-session = { path = "../../crates/cheime-session" }
+cheime-user-data = { path = "../../crates/cheime-user-data" }
+parking_lot.workspace = true
+serde_yaml.workspace = true
