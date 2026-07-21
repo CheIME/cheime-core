@@ -205,6 +205,19 @@ pub struct UserStore {
     blocked: HashSet<(String, String)>,
     deleted: HashSet<(String, String)>,
     db: Option<Arc<Mutex<Connection>>>,
+    /// Words pending confirmation — not yet learned.
+    /// Cleared (confirmed) when the next word is committed or on timeout.
+    pending: Vec<PendingLearn>,
+}
+
+/// A word that was committed but not yet confirmed as learned.
+/// If the user backspaces quickly (typo correction), it's discarded.
+#[derive(Debug, Clone)]
+pub struct PendingLearn {
+    pub text: String,
+    pub code: String,
+    pub schema: String,
+    pub timestamp: u64,
 }
 
 impl UserStore {
@@ -214,6 +227,7 @@ impl UserStore {
             frequency: HashMap::new(), code_texts: HashMap::new(),
             text_frequency: HashMap::new(), pinned: HashSet::new(),
             blocked: HashSet::new(), deleted: HashSet::new(), db: None,
+            pending: Vec::new(),
         }
     }
 
@@ -227,6 +241,7 @@ impl UserStore {
             text_frequency: HashMap::new(), pinned: HashSet::new(),
             blocked: HashSet::new(), deleted: HashSet::new(),
             db: Some(Arc::new(Mutex::new(conn))),
+            pending: Vec::new(),
         };
         store.load_from_db()?;
         Ok(store)
@@ -392,6 +407,37 @@ impl UserStore {
         }
     }
 
+    // ── Smart learning with typo detection ──────────────────────────
+
+    /// Stage a word for learning. Previous pending words are confirmed
+    /// first (the user didn't backspace them, so they're intentional).
+    pub fn commit_pending(&mut self, text: &str, code: &str, schema: &str) {
+        // Confirm any previously pending words
+        self.confirm_all_pending();
+
+        // Stage this one for later confirmation
+        self.pending.push(PendingLearn {
+            text: text.to_owned(),
+            code: code.to_owned(),
+            schema: schema.to_owned(),
+            timestamp: now_secs(),
+        });
+    }
+
+    /// User hit backspace quickly after a commit — this was a typo.
+    /// Remove the most recently staged word without learning it.
+    pub fn undo_last(&mut self) -> bool {
+        self.pending.pop().is_some()
+    }
+
+    /// Confirm all pending words as actually learned.
+    pub fn confirm_all_pending(&mut self) {
+        let pending: Vec<_> = self.pending.drain(..).collect();
+        for p in pending {
+            self.apply(UserEvent::learn_word(&self.device_id, &p.schema, &p.text, &p.code));
+        }
+    }
+
     pub fn query(&self, code: &str) -> Vec<UserCandidate> {
         let mut cs = Vec::new();
         let mut seen = HashSet::new();
@@ -410,7 +456,6 @@ impl UserStore {
         cs.sort_by(|a, b| b.pinned.cmp(&a.pinned).then_with(|| b.frequency.cmp(&a.frequency)));
         cs
     }
-
     pub fn is_pinned(&self, schema: &str, text: &str) -> bool {
         self.pinned.contains(&(schema.to_owned(), text.to_owned()))
     }
@@ -477,5 +522,26 @@ mod tests {
         }
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn commit_then_undo_does_not_learn() {
+        let mut store = UserStore::new("test");
+        store.commit_pending("你好", "nihao", "qp");
+        assert!(store.undo_last()); // typo — backspace
+        store.confirm_all_pending(); // should be no-op
+        assert_eq!(store.frequency("qp", "你好"), 0);
+    }
+
+    #[test]
+    fn commit_then_continue_confirms_previous() {
+        let mut store = UserStore::new("test");
+        store.commit_pending("测试", "ceshi", "qp");
+        // User didn't backspace — next word commit confirms previous
+        store.commit_pending("你好", "nihao", "qp");
+        assert_eq!(store.frequency("qp", "测试"), 1);
+        // "你好" is still pending
+        store.confirm_all_pending();
+        assert_eq!(store.frequency("qp", "你好"), 1);
     }
 }

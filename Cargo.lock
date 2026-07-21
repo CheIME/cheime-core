@@ -99,6 +99,7 @@ name = "cheime-cli"
 version = "0.1.0"
 dependencies = [
  "cheime-config",
+ "cheime-dictionary",
  "cheime-model",
  "cheime-pipeline",
  "cheime-protocol",

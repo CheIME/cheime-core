@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 cheime-config = { path = "../../crates/cheime-config" }
+cheime-dictionary = { path = "../../crates/cheime-dictionary" }
 cheime-model = { path = "../../crates/cheime-model" }
 cheime-pipeline = { path = "../../crates/cheime-pipeline" }
 cheime-protocol = { path = "../../crates/cheime-protocol" }
