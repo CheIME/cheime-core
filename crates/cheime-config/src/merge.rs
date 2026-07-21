@@ -95,7 +95,7 @@ impl ConfigLoader {
 /// Deep merge: `child` values override `parent` values.
 /// Lists are replaced entirely (child takes precedence).
 /// Maps are merged recursively.
-fn merge_configs(mut parent: SchemaConfig, child: SchemaConfig) -> SchemaConfig {
+pub(crate) fn merge_configs(mut parent: SchemaConfig, child: SchemaConfig) -> SchemaConfig {
     // Schema meta
     if child.schema.is_some() { parent.schema = child.schema; }
 
@@ -142,10 +142,6 @@ fn merge_configs(mut parent: SchemaConfig, child: SchemaConfig) -> SchemaConfig 
     // Menu: child overrides parent
     parent.menu.page_size = child.menu.page_size;
     parent.menu.page_down_cycle = child.menu.page_down_cycle;
-    if child.menu.alternative_select_keys.is_some() {
-        parent.menu.alternative_select_keys = child.menu.alternative_select_keys;
-    }
-
     // Schema version: child wins
     parent.schema_version = child.schema_version;
 
@@ -210,5 +206,15 @@ engine: {}
         // But if we loaded via inline, we'd catch cycles
         let result = loader.load(yaml);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn direct_merge_overrides_page_size() {
+        let p9: SchemaConfig = serde_yaml::from_str("schema_version: 1\nengine: {}\nmenu:\n  page_size: 9\n").unwrap();
+        let p5: SchemaConfig = serde_yaml::from_str("schema_version: 1\nengine: {}\nmenu:\n  page_size: 5\n").unwrap();
+        assert_eq!(p9.menu.page_size, 9);
+        assert_eq!(p5.menu.page_size, 5);
+        let merged = merge_configs(p9, p5);
+        assert_eq!(merged.menu.page_size, 5, "child page_size=5 should override parent page_size=9");
     }
 }
