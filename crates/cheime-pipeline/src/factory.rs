@@ -80,15 +80,51 @@ impl PipelineFactory {
         Box::new(UnifiedRanker::new(Default::default()))
     }
 }
-
 #[derive(Clone, Debug)]
-pub enum BuildError { UnsupportedComponent { component_type: String, pipeline_stage: String }, MissingDictionary { name: String } }
+pub enum BuildError {
+    UnsupportedComponent { component_type: String, pipeline_stage: String },
+    MissingDictionary { name: String },
+    SimplifierLoad { error: String },
+}
+
 impl std::fmt::Display for BuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self { BuildError::UnsupportedComponent { component_type, pipeline_stage } => write!(f, "unsupported '{component_type}' in {pipeline_stage}"), BuildError::MissingDictionary { name } => write!(f, "dictionary '{name}' not found") }
+        match self {
+            Self::UnsupportedComponent { component_type, pipeline_stage } => write!(f, "unsupported '{component_type}' in {pipeline_stage}"),
+            Self::MissingDictionary { name } => write!(f, "dictionary '{name}' not found"),
+            Self::SimplifierLoad { error } => write!(f, "simplifier load failed: {error}"),
+        }
     }
 }
+
 impl std::error::Error for BuildError {}
+
+impl BuildError {
+    /// Convert to a structured DiagnosticError for reporting.
+    pub fn to_diagnostic(&self) -> cheime_diagnostics::DiagnosticError {
+        match self {
+            Self::UnsupportedComponent { component_type, pipeline_stage } => {
+                cheime_diagnostics::DiagnosticError::component_build(
+                    pipeline_stage,
+                    format!("unsupported component: {component_type}"),
+                )
+            }
+            Self::MissingDictionary { name } => {
+                cheime_diagnostics::DiagnosticError::new(
+                    "E-DICT-MISSING", cheime_diagnostics::Severity::ComponentInit,
+                    format!("Dictionary '{name}' is required but not found"),
+                )
+                .with_component(name)
+            }
+            Self::SimplifierLoad { error } => {
+                cheime_diagnostics::DiagnosticError::new(
+                    "E-SIMPLIFIER-LOAD", cheime_diagnostics::Severity::ComponentInit,
+                    error.clone(),
+                )
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

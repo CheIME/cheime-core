@@ -2,7 +2,7 @@
 members = [
     "apps/cheime-cli",
     "crates/cheime-config",
-    "crates/cheime-wire",
+    "crates/cheime-diagnostics",
     "crates/cheime-dictionary",
     "crates/cheime-extension",
     "crates/cheime-lua",

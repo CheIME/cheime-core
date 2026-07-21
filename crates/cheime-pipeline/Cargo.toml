@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 cheime-config = { path = "../cheime-config" }
+cheime-diagnostics = { path = "../cheime-diagnostics" }
 cheime-dictionary = { path = "../cheime-dictionary" }
 cheime-model = { path = "../cheime-model" }
 cheime-user-data = { path = "../cheime-user-data" }
