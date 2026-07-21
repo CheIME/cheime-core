@@ -8,6 +8,15 @@ use cheime_model::{DeploymentGeneration, Key, KeyEvent, KeyState};
 use cheime_pipeline::factory::PipelineFactory;
 use cheime_pipeline::InputPipeline;
 use std::sync::{Arc, OnceLock};
+use cheime_config::schema::PunctuatorConfig;
+use cheime_pipeline::normalizer::FuzzyNormalizer;
+use cheime_pipeline::processor::DefaultProcessor;
+use cheime_pipeline::segmentor::PinyinSegmentor;
+use cheime_pipeline::simplifier::{Conversion, SimplifierFilter};
+use cheime_pipeline::translator::DictTranslator;
+use cheime_pipeline::ranker::UnifiedRanker;
+use cheime_pipeline::ComposablePipeline;
+use std::collections::BTreeMap;
 
 // ── Shared real-dict pipeline ──────────────────────────────────────
 
@@ -259,4 +268,103 @@ punctuator:
     let r3 = p.apply("3n", &KeyEvent { key: Key::Character('.'), state: KeyState::default() }).unwrap();
     assert!(matches!(r3.intent, cheime_pipeline::PipelineIntent::CommitText(ref t) if t == "。"),
         "after letter, . should commit fullwidth, got {:?}", r3.intent);
+}
+
+// ── Fuzzy normalizer integration ────────────────────────────────────
+
+#[test]
+fn fuzzy_pinyin_matches_with_normalizer() {
+    let p = ComposablePipeline::new(
+        Box::new(DefaultProcessor::new()),
+        Box::new(PinyinSegmentor::new()),
+        Some(Box::new(FuzzyNormalizer::standard())),
+        vec![
+            Box::new(DictTranslator::new("main", real_dict().clone())),
+            Box::new(cheime_pipeline::emoji::EmojiTranslator::new()),
+        ],
+        vec![],
+        Box::new(UnifiedRanker::new(Default::default())),
+    );
+
+    let mut comp = String::new();
+    let mut found = false;
+    for ch in "zhong".chars() {
+        let update = p.apply(&comp, &key(ch)).unwrap();
+        comp = update.composition;
+        if !update.candidates.is_empty() {
+            found = true;
+        }
+    }
+    assert!(found, "should produce candidates for zhong with fuzzy normalizer in pipeline");
+}
+fn punctuator_half_shape_does_not_convert() {
+    let mut full = BTreeMap::new();
+    full.insert(".".into(), serde_json::json!({"commit": "。"}));
+    let half = BTreeMap::new();
+    let config = PunctuatorConfig { full_shape: full, half_shape: half };
+
+    let p = ComposablePipeline::new(
+        Box::new(cheime_pipeline::punctuator::PunctProcessor::new(
+            &config, true, Box::new(DefaultProcessor::new()))),
+        Box::new(PinyinSegmentor::new()),
+        None,
+        vec![Box::new(DictTranslator::new("main", real_dict().clone()))],
+        vec![],
+        Box::new(UnifiedRanker::new(Default::default())),
+    );
+
+    // In half_shape mode with empty map, "." is not intercepted.
+    // It falls through to inner DefaultProcessor which rejects
+    // non-alphanumeric characters. The key assertion: "." does
+    // NOT commit "。" unlike full_shape mode.
+    let result = p.apply("", &KeyEvent { key: Key::Character('.'), state: KeyState::default() });
+    match result {
+        Err(cheime_pipeline::PipelineError::UnsupportedCharacter('.')) => {
+            // Correct: half_shape mode passes through without converting
+        }
+        Ok(_) => {
+            panic!("expected UnsupportedCharacter in half_shape mode with no '.' mapping");
+        }
+        Err(e) => panic!("unexpected error: {:?}", e),
+    }
+}
+
+// ── Simplifier source annotation ────────────────────────────────────
+
+#[test]
+fn simplifier_annotated_source_preserved_in_candidates() {
+    // Build a minimal s2t simplifier with annotation enabled
+    let tsv = "# minimal s2t\n国\t國\n";
+    let sf = SimplifierFilter::parse(tsv, Conversion::S2T, true).unwrap();
+
+    let p = ComposablePipeline::new(
+        Box::new(DefaultProcessor::new()),
+        Box::new(PinyinSegmentor::new()),
+        None,
+        vec![Box::new(DictTranslator::new("main", real_dict().clone()))],
+        vec![Box::new(sf)],
+        Box::new(UnifiedRanker::new(Default::default())),
+    );
+
+    let mut comp = String::new();
+    let mut final_update = None;
+    for ch in "zhongguo".chars() {
+        let update = p.apply(&comp, &key(ch)).unwrap();
+        comp = update.composition.clone();
+        final_update = Some(update);
+    }
+    let update = final_update.expect("should have candidates after typing zhongguo");
+    assert!(!update.candidates.is_empty(), "should have candidates for zhongguo");
+
+    // Look for a candidate whose source contains "simplified" (went through conversion)
+    let simplified = update.candidates.iter().find(|c| c.source.contains("simplified"));
+    assert!(simplified.is_some(),
+        "should have candidate with 'simplified' source annotation, got sources: {:?}",
+        update.candidates.iter().map(|c| &c.source).collect::<Vec<_>>());
+
+    let c = simplified.unwrap();
+    assert!(c.text.contains('國'),
+        "simplified candidate should contain traditional character, got '{}'", c.text);
+    assert!(c.source.starts_with("dict"),
+        "annotated source should start with 'dict', got '{}'", c.source);
 }

@@ -623,4 +623,179 @@ mod tests {
         assert_eq!(snapshot.page, 0);
         assert_eq!(snapshot.highlighted, Some(CandidateId::new(1)));
     }
+
+    #[test]
+    fn dismiss_clears_composition_and_candidates() {
+        let mut session = Session::new(initial_header(), pipeline());
+        session.handle(key_message(1, 0, Key::Character('n'))).unwrap();
+        session.handle(key_message(2, 1, Key::Character('i'))).unwrap();
+        assert_eq!(session.composition(), "ni");
+        assert!(!session.candidates.is_empty());
+
+        // Dismiss sends CancelComposition, waits for platform to apply
+        let output = session
+            .handle(ui_message(3, 2, UiCommand::Dismiss))
+            .unwrap();
+        let action_id = match &output[0] {
+            EngineMessage::PlatformAction { action, .. } => {
+                assert_eq!(action.kind, PlatformActionKind::CancelComposition);
+                action.id
+            }
+            other => panic!("expected PlatformAction, got {other:?}"),
+        };
+        // Composition preserved until platform applies
+        assert_eq!(session.composition(), "ni");
+
+        // Platform applies the dismiss
+        let mut result_header = initial_header();
+        result_header.sequence = Sequence::new(4);
+        result_header.revision = Revision::new(2);
+        session
+            .handle(FrontendMessage::PlatformActionResult {
+                header: result_header,
+                result: PlatformActionResult {
+                    action_id,
+                    outcome: PlatformActionOutcome::Applied,
+                },
+            })
+            .unwrap();
+        assert_eq!(session.composition(), "");
+        assert!(session.candidates.is_empty());
+    }
+
+    #[test]
+    fn rejected_commit_preserves_composition() {
+        let mut session = Session::new(initial_header(), pipeline());
+        session.handle(key_message(1, 0, Key::Character('n'))).unwrap();
+        session.handle(key_message(2, 1, Key::Character('i'))).unwrap();
+
+        // Select candidate #1 (你) — this creates a Commit action
+        let output = session
+            .handle(ui_message(
+                3,
+                2,
+                UiCommand::SelectCandidate {
+                    epoch: SessionEpoch::new(3),
+                    snapshot_revision: Revision::new(2),
+                    candidate_id: CandidateId::new(1),
+                },
+            ))
+            .unwrap();
+        let action_id = match &output[0] {
+            EngineMessage::PlatformAction { action, .. } => action.id,
+            other => panic!("expected PlatformAction, got {other:?}"),
+        };
+        assert_eq!(session.composition(), "ni");
+
+        // Platform rejects the commit
+        let mut result_header = initial_header();
+        result_header.sequence = Sequence::new(4);
+        result_header.revision = Revision::new(2);
+        let output = session
+            .handle(FrontendMessage::PlatformActionResult {
+                header: result_header,
+                result: PlatformActionResult {
+                    action_id,
+                    outcome: PlatformActionOutcome::Rejected {
+                        reason: String::from("stale epoch"),
+                    },
+                },
+            })
+            .unwrap();
+        assert!(output.is_empty());
+        // Composition and candidates must be preserved after rejection
+        assert_eq!(session.composition(), "ni");
+        assert!(!session.candidates.is_empty());
+    }
+
+    #[test]
+    fn multi_page_navigation_with_many_candidates() {
+        let big = {
+            let mut entries = Vec::new();
+            for i in 0..15 {
+                entries.push((String::from("ni"), format!("你{}", i), 15 - i));
+            }
+            BuiltinPipeline::new(entries)
+        };
+        let mut session = Session::new(initial_header(), big);
+        session.handle(key_message(1, 0, Key::Character('n'))).unwrap();
+        session.handle(key_message(2, 1, Key::Character('i'))).unwrap();
+
+        // 15 candidates, page_size=9 → page 0 has 9
+        let output = session
+            .handle(ui_message(3, 2, UiCommand::NextPage))
+            .unwrap();
+        let snapshot = match &output[0] {
+            EngineMessage::CandidateSnapshot { snapshot, .. } => snapshot,
+            other => panic!("expected snapshot, got {other:?}"),
+        };
+        assert_eq!(snapshot.page, 1);
+        // Page 1 has remaining 6 candidates
+        assert_eq!(snapshot.candidates.len(), 6);
+
+        // PreviousPage goes back to page 0
+        let output = session
+            .handle(ui_message(4, 2, UiCommand::PreviousPage))
+            .unwrap();
+        let snapshot = match &output[0] {
+            EngineMessage::CandidateSnapshot { snapshot, .. } => snapshot,
+            other => panic!("expected snapshot, got {other:?}"),
+        };
+        assert_eq!(snapshot.page, 0);
+        assert_eq!(snapshot.candidates.len(), 9);
+
+        // PreviousPage at page 0 clamps (no negative page)
+        let output = session
+            .handle(ui_message(5, 2, UiCommand::PreviousPage))
+            .unwrap();
+        let snapshot = match &output[0] {
+            EngineMessage::CandidateSnapshot { snapshot, .. } => snapshot,
+            other => panic!("expected snapshot, got {other:?}"),
+        };
+        assert_eq!(snapshot.page, 0);
+    }
+
+    #[test]
+    fn backspace_and_retype_produces_same_candidates() {
+        let mut session = Session::new(initial_header(), pipeline());
+        session.handle(key_message(1, 0, Key::Character('n'))).unwrap();
+        let output = session.handle(key_message(2, 1, Key::Character('i'))).unwrap();
+
+        // Record candidates from first "ni" query
+        let first_snapshot = match &output[1] {
+            EngineMessage::CandidateSnapshot { snapshot, .. } => snapshot.clone(),
+            other => panic!("expected snapshot, got {other:?}"),
+        };
+
+        // Backspace to "n"
+        session.handle(key_message(3, 2, Key::Backspace)).unwrap();
+        assert_eq!(session.composition(), "n");
+
+        // Retype "i" → should produce same candidates
+        let output = session.handle(key_message(4, 3, Key::Character('i'))).unwrap();
+        let second_snapshot = match &output[1] {
+            EngineMessage::CandidateSnapshot { snapshot, .. } => snapshot.clone(),
+            other => panic!("expected snapshot, got {other:?}"),
+        };
+        assert_eq!(first_snapshot.candidates, second_snapshot.candidates);
+    }
+
+    #[test]
+    fn move_highlight_past_candidate_count_clamps() {
+        let mut session = Session::new(initial_header(), pipeline());
+        session.handle(key_message(1, 0, Key::Character('n'))).unwrap();
+        session.handle(key_message(2, 1, Key::Character('i'))).unwrap();
+        // 3 candidates: indices 0=你, 1=尼, 2=泥
+
+        // MoveHighlight(5) with only 3 candidates → clamps to last (index 2)
+        let output = session
+            .handle(ui_message(3, 2, UiCommand::MoveHighlight(5)))
+            .unwrap();
+        let snapshot = match &output[0] {
+            EngineMessage::CandidateSnapshot { snapshot, .. } => snapshot,
+            other => panic!("expected snapshot, got {other:?}"),
+        };
+        // Clamped to last candidate: index 2 → CandidateId 3 (泥)
+        assert_eq!(snapshot.highlighted, Some(CandidateId::new(3)));
+    }
 }

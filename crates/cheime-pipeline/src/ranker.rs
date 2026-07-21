@@ -88,4 +88,56 @@ mod tests {
         let result = r.rank(input);
         assert_eq!(result[0].text, "中国");
     }
+
+    #[test]
+    fn simplifier_annotated_source_retains_dict_priority() {
+        // Use equal-length texts to isolate source_priority effect
+        let r = UnifiedRanker::new(RankWeights { source: 1.0, code_length: 0.0 }); // disable code_length
+        let input = vec![
+            Candidate::text(CandidateId::new(1), "中A", "builtin"),              // 0.7
+            Candidate::text(CandidateId::new(2), "中B", "dict:abc→simplified"),  // annotated, should be 0.8
+        ];
+        let result = r.rank(input);
+        assert_eq!(result[0].text, "中B", "simplifier-annotated dict (0.8) should rank above builtin (0.7)");
+    }
+    #[test]
+    fn annotated_dict_source_ranks_above_builtin() {
+        let r = UnifiedRanker::new(RankWeights::default());
+        let input = vec![
+            Candidate::text(CandidateId::new(1), "中国", "builtin"),
+            Candidate::text(CandidateId::new(2), "中国", "dict:abc→simplified"),
+        ];
+        let result = r.rank(input);
+        assert_eq!(result[0].source, "dict:abc→simplified",
+            "annotated dict source should rank above builtin");
+    }
+
+    #[test]
+    fn annotated_user_source_still_top() {
+        let r = UnifiedRanker::new(RankWeights::default());
+        let input = vec![
+            Candidate::text(CandidateId::new(1), "中国", "dict:abc→simplified"),
+            Candidate::text(CandidateId::new(2), "中国", "user:abc→simplified"),
+        ];
+        let result = r.rank(input);
+        assert_eq!(result[0].source, "user:abc→simplified",
+            "annotated user source should still rank highest");
+    }
+
+    #[test]
+    fn multiple_annotated_sources_rank_correctly() {
+        let r = UnifiedRanker::new(RankWeights::default());
+        let input = vec![
+            Candidate::text(CandidateId::new(1), "中国", "unknown:x"),
+            Candidate::text(CandidateId::new(2), "中国", "emoji"),
+            Candidate::text(CandidateId::new(3), "中国", "dict:s2t→traditional"),
+            Candidate::text(CandidateId::new(4), "中国", "user_dict→simplified"),
+        ];
+        let result = r.rank(input);
+        let sources: Vec<&str> = result.iter().map(|c| c.source.as_str()).collect();
+        assert_eq!(sources[0], "user_dict→simplified", "user-annotated should be first");
+        assert_eq!(sources[1], "dict:s2t→traditional", "dict-annotated should be second");
+        assert_eq!(sources[2], "emoji", "emoji should be third");
+        assert_eq!(sources[3], "unknown:x", "unknown should be last");
+    }
 }
