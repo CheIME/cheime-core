@@ -10,7 +10,7 @@ pub struct CompiledIndex {
     pub generation: DeploymentGeneration,
     pub source_hash: String,
     pub total_entries: usize,
-    entries: BTreeMap<String, Vec<(String, Option<i64>)>>,
+    pub(crate) entries: BTreeMap<String, Vec<(String, Option<i64>)>>,
 }
 
 impl CompiledIndex {
