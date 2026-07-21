@@ -53,7 +53,7 @@ impl PunctProcessor {
             inner,
             active,
             last_was_digit: false,
-            id_counter: 100_000,
+            id_counter: 4_000_000,
         }
     }
 

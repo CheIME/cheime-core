@@ -82,9 +82,13 @@ impl KeyMapper for FlypyMapper {
     fn map(&mut self, event: &KeyEvent) -> KeyMapResult {
         let ch = match event.key {
             Key::Character(c) if c.is_ascii_lowercase() => c,
-            _ => return KeyMapResult::default(),
+            _ => {
+                // Non-character key (Backspace, Enter, Escape...) — reset state machine
+                self.state = 0;
+                self.buffer.clear();
+                return KeyMapResult::default();
+            }
         };
-
         if self.state == 1 {
             // Waiting for final
             self.state = 0;
@@ -159,5 +163,21 @@ mod tests {
         // 'a' as standalone final (zero-initial)
         let r = m.map(&k('a'));
         assert_eq!(r.characters, vec!['a']);
+    }
+
+    #[test]
+    fn flypy_backspace_resets_state() {
+        let mut m = FlypyMapper::new();
+        // 'v' buffers "zh", state becomes 1
+        m.map(&k('v'));
+        assert_eq!(m.state, 1);
+        // Backspace resets state to 0, buffer cleared
+        m.map(&KeyEvent { key: Key::Backspace, state: KeyState::default() });
+        assert_eq!(m.state, 0);
+        assert!(m.buffer.is_empty());
+        // 'h' in state 0 → initial consonant → buffers "h", state becomes 1
+        let r = m.map(&k('a'));
+        // 'a' in state 1 → final vowel → output: buffered "h" + final "a" = ['h', 'a']
+        assert!(!r.characters.is_empty());
     }
 }

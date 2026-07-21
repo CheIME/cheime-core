@@ -17,7 +17,7 @@ pub struct EmojiTranslator {
 
 impl EmojiTranslator {
     pub fn new() -> Self {
-        let mut t = Self { by_keyword: HashMap::new(), by_pinyin: HashMap::new(), counter: 1_000_000 };
+        let mut t = Self { by_keyword: HashMap::new(), by_pinyin: HashMap::new(), counter: 2_000_000 };
         t.load_builtin();
         t
     }
