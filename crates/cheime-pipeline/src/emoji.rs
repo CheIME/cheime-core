@@ -88,17 +88,17 @@ impl EmojiTranslator {
 impl Translator for EmojiTranslator {
     fn name(&self) -> &str { "emoji" }
 
-    fn translate(&self, segment: &CodeSegment) -> Vec<Candidate> {
-        let code = &segment.code;
+    fn translate(&self, segments: &[CodeSegment]) -> Vec<Candidate> {
         let mut results: Vec<String> = Vec::new();
 
-        // Search by pinyin code
-        if let Some(emojis) = self.by_pinyin.get(code) {
-            results.extend(emojis.clone());
-        }
-        // Also search by keyword (for non-pinyin input like `:smile`)
-        if let Some(emojis) = self.by_keyword.get(code) {
-            results.extend(emojis.clone());
+        for seg in segments {
+            let code = &seg.code;
+            if let Some(emojis) = self.by_pinyin.get(code) {
+                results.extend(emojis.clone());
+            }
+            if let Some(emojis) = self.by_keyword.get(code) {
+                results.extend(emojis.clone());
+            }
         }
 
         results.into_iter().enumerate().map(|(i, text)| {
@@ -115,7 +115,7 @@ mod tests {
     fn smile_emoji_by_pinyin() {
         let t = EmojiTranslator::new();
         let s = CodeSegment { code: "xiao".into(), tag: "pinyin".into() };
-        let cs = t.translate(&s);
+        let cs = t.translate(&[s]);
         assert!(!cs.is_empty());
         assert!(cs.iter().all(|c| c.is_emoji));
     }
@@ -124,7 +124,7 @@ mod tests {
     fn heart_by_keyword() {
         let t = EmojiTranslator::new();
         let s = CodeSegment { code: "heart".into(), tag: "ascii".into() };
-        let cs = t.translate(&s);
+        let cs = t.translate(&[s]);
         assert!(!cs.is_empty());
     }
 }

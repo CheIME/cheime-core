@@ -23,7 +23,7 @@ fn main() {
     let store = Arc::new(Mutex::new(user_store));
 
     let config: cheime_config::schema::SchemaConfig =
-        serde_yaml::from_str("schema_version: 1\nengine: {}\n").unwrap();
+        serde_yaml::from_str("schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n").unwrap();
     let dict_index = load_dict();
     let pipeline = PipelineFactory::build(&config, Some(store.clone()), Some(dict_index), None).unwrap();
 

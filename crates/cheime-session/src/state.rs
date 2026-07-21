@@ -63,7 +63,7 @@ impl<P: InputPipeline> Session<P> {
         &mut self,
         message: FrontendMessage,
     ) -> Result<Vec<EngineMessage>, SessionError> {
-        self.validate_header(message.header())?;
+        self.validate_header(message.header(), &message)?;
         self.last_sequence = message.header().sequence;
 
         match message {
@@ -80,7 +80,7 @@ impl<P: InputPipeline> Session<P> {
 
     // ── Header validation ─────────────────────────────────────────────
 
-    fn validate_header(&self, header: &MessageHeader) -> Result<(), SessionError> {
+    fn validate_header(&self, header: &MessageHeader, message: &FrontendMessage) -> Result<(), SessionError> {
         if header.epoch != self.identity.epoch {
             return Err(SessionError::StaleEpoch {
                 received: header.epoch,
@@ -93,17 +93,19 @@ impl<P: InputPipeline> Session<P> {
                 last: self.last_sequence,
             });
         }
-        if header.revision != self.revision {
-            return Err(SessionError::StaleRevision {
-                received: header.revision,
-                current: self.revision,
-            });
+        match &message {
+            FrontendMessage::KeyCommand { .. } | FrontendMessage::UiCommand { .. } => {}
+            _ => {
+                if header.revision != self.revision {
+                    return Err(SessionError::StaleRevision {
+                        received: header.revision,
+                        current: self.revision,
+                    });
+                }
+            }
         }
         Ok(())
     }
-
-    // ── Key handling ──────────────────────────────────────────────────
-
     fn handle_key(
         &mut self,
         event: cheime_model::KeyEvent,

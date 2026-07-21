@@ -82,8 +82,10 @@ pub trait Translator: Send + Sync {
     /// Return the translator's display name for diagnostics.
     fn name(&self) -> &str;
 
-    /// Produce candidates for a single code segment.
-    fn translate(&self, segment: &CodeSegment) -> Vec<Candidate>;
+    /// Produce candidates for a sequence of code segments.
+    /// Translators receive all segments at once, allowing multi-syllable
+    /// dictionary lookups (e.g., segments ["ni", "hao"] → query "ni hao").
+    fn translate(&self, segments: &[CodeSegment]) -> Vec<Candidate>;
 }
 
 // ── Filter ──────────────────────────────────────────────────────────
@@ -159,7 +161,7 @@ impl ComposablePipeline {
             segments.iter().flat_map(|s| n.normalize(s)).collect()
         } else { segments };
         let mut candidates = Vec::new();
-        for seg in &variants { for t in &self.translators { candidates.extend(t.translate(seg)); } }
+        for t in &self.translators { candidates.extend(t.translate(&variants)); }
         for f in &self.filters { candidates = f.filter(candidates); }
         candidates = self.ranker.rank(candidates);
         Ok(PipelineUpdate { composition: proc.composition, candidates, intent: proc.intent })

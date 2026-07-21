@@ -29,8 +29,9 @@ impl Translator for DictTranslator {
         &self.name
     }
 
-    fn translate(&self, segment: &CodeSegment) -> Vec<Candidate> {
-        self.index.query(&segment.code)
+    fn translate(&self, segments: &[CodeSegment]) -> Vec<Candidate> {
+        let code = segments.iter().map(|s| s.code.as_str()).collect::<Vec<_>>().join(" ");
+        self.index.query(&code)
     }
 }
 
@@ -45,11 +46,12 @@ impl Translator for PassthroughTranslator {
     fn name(&self) -> &str {
         "passthrough"
     }
-
-    fn translate(&self, segment: &CodeSegment) -> Vec<Candidate> {
+    fn translate(&self, segments: &[CodeSegment]) -> Vec<Candidate> {
+        if segments.is_empty() { return vec![]; }
+        let text = segments.iter().map(|s| s.code.as_str()).collect::<Vec<_>>().join("");
         vec![Candidate {
             id: cheime_model::CandidateId::new(1),
-            text: segment.code.clone(),
+            text,
             annotation: None,
             source: String::from("passthrough"),
             is_emoji: false,
@@ -77,17 +79,17 @@ impl Translator for UserDictTranslator {
     fn name(&self) -> &str {
         "user_dict"
     }
-
-    fn translate(&self, segment: &CodeSegment) -> Vec<Candidate> {
+    fn translate(&self, segments: &[CodeSegment]) -> Vec<Candidate> {
+        let code = segments.iter().map(|s| s.code.as_str()).collect::<Vec<_>>().join(" ");
         let store = self.store.lock();
-        let user_cands = store.query(&segment.code);
+        let user_cands = store.query(&code);
         user_cands
             .into_iter()
             .enumerate()
             .map(|(i, uc)| Candidate {
                 id: cheime_model::CandidateId::new(1_000_000 + i as u64),
                 text: uc.text,
-                annotation: Some(format!("{}×{}", segment.code, uc.frequency)),
+                annotation: Some(format!("{}×{}", code, uc.frequency)),
                 source: String::from("user_dict"),
                 is_emoji: false,
             })
@@ -130,7 +132,7 @@ mod tests {
             code: "ni".into(),
             tag: "pinyin".into(),
         };
-        let candidates = translator.translate(&segment);
+        let candidates = translator.translate(&[segment]);
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].text, "你");
     }
@@ -142,7 +144,7 @@ mod tests {
             code: "hello".into(),
             tag: "unknown".into(),
         };
-        let candidates = t.translate(&seg);
+        let candidates = t.translate(&[seg]);
         assert_eq!(candidates[0].text, "hello");
     }
 }
