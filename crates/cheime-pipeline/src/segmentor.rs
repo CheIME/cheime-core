@@ -106,8 +106,8 @@ impl Trie {
                 }
             }
             if longest == pos {
-                // No valid syllable — take the whole remainder
-                longest = bytes.len();
+                // No valid syllable — take one character (for abbreviation support)
+                longest = pos + 1;
             }
             result.push(input[pos..longest].to_owned());
             pos = longest;
@@ -200,5 +200,23 @@ mod tests {
         assert_eq!(result[0].code, "xian");
         assert_eq!(result[1].code, "shi");
         assert_eq!(result[2].code, "qi");
+    }
+
+    #[test]
+    fn segment_abbreviation_nh() {
+        let seg = PinyinSegmentor::new();
+        let result = seg.segment("nh");
+        assert_eq!(result.len(), 2, "nh should split into [n, h]");
+        assert_eq!(result[0].code, "n");
+        assert_eq!(result[1].code, "h");
+    }
+
+    #[test]
+    fn segment_abbreviation_nhao() {
+        let seg = PinyinSegmentor::new();
+        let result = seg.segment("nhao");
+        assert_eq!(result.len(), 2, "nhao should split into [n, hao]");
+        assert_eq!(result[0].code, "n");
+        assert_eq!(result[1].code, "hao");
     }
 }
