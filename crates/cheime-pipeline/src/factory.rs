@@ -26,7 +26,7 @@ impl PipelineFactory {
     pub fn build(config: &SchemaConfig, user_store: Option<Arc<Mutex<UserStore>>>, dict_index: Option<Arc<CompiledIndex>>, key_mapper: Option<Box<dyn crate::key_mapper::KeyMapper>>) -> Result<ComposablePipeline, BuildError> {
         let mut p = ComposablePipeline::new(
             Self::build_processor(config)?, Self::build_segmentor(&config.engine)?,
-            None,
+            Self::build_normalizer(&config.engine),
             Self::build_translators(&config.engine, user_store, dict_index)?,
             Self::build_filters(&config.engine)?, Self::build_ranker());
         if let Some(km) = key_mapper { p = p.with_key_mapper(km); }
@@ -42,6 +42,34 @@ impl PipelineFactory {
     fn build_segmentor(e: &EngineConfig) -> Result<Box<dyn Segmentor>, BuildError> {
         for s in &e.segmentors { if matches!(s, SegmentorConfig::PinyinSyllable) { return Ok(Box::new(PinyinSegmentor::new())); } }
         Ok(Box::new(PassthroughSegmentor))
+    }
+    fn build_normalizer(e: &EngineConfig) -> Option<Box<dyn crate::normalizer::CodeNormalizer>> {
+        use crate::normalizer::{AbbreviationNormalizer, CompositeNormalizer, FuzzyNormalizer};
+        use cheime_config::schema::SegmentorConfig;
+
+        let mut normalizers: Vec<Box<dyn crate::normalizer::CodeNormalizer>> = Vec::new();
+
+        // Abbreviation normalizer (auto-enabled for pinyin segmentor)
+        if e.segmentors.iter().any(|s| matches!(s, SegmentorConfig::PinyinSyllable)) {
+            normalizers.push(Box::new(AbbreviationNormalizer::new()));
+        }
+
+        // Fuzzy normalizer (configurable)
+        if let Some(ref fuzzy) = e.fuzzy_pinyin {
+            if fuzzy.enabled {
+                if fuzzy.rules.is_empty() {
+                    normalizers.push(Box::new(FuzzyNormalizer::standard()));
+                } else {
+                    normalizers.push(Box::new(FuzzyNormalizer::from_rules(&fuzzy.rules)));
+                }
+            }
+        }
+
+        match normalizers.len() {
+            0 => None,
+            1 => Some(normalizers.into_iter().next().unwrap()),
+            _ => Some(Box::new(CompositeNormalizer::new(normalizers))),
+        }
     }
     fn build_translators(e: &EngineConfig, user_store: Option<Arc<Mutex<UserStore>>>, dict_index: Option<Arc<CompiledIndex>>) -> Result<Vec<Box<dyn Translator>>, BuildError> {
         use cheime_config::schema::TranslatorConfig;

@@ -5,12 +5,19 @@
 //! Each rule is a typed struct, not an opaque regex.
 
 use crate::CodeSegment;
+use std::collections::HashMap;
 
 /// Expands a code segment into variant spellings.
 /// Each variant is then translated independently by downstream translators.
 pub trait CodeNormalizer: Send + Sync {
     fn name(&self) -> &str;
     fn normalize(&self, segment: &CodeSegment) -> Vec<CodeSegment>;
+
+    /// Normalize all segments together (cross-segment logic like abbreviation).
+    /// Default: per-segment normalize.
+    fn normalize_all(&self, segments: &[CodeSegment]) -> Vec<CodeSegment> {
+        segments.iter().flat_map(|s| self.normalize(s)).collect()
+    }
 }
 
 // ── Fuzzy pinyin ───────────────────────────────────────────────────
@@ -57,6 +64,18 @@ impl FuzzyNormalizer {
             None
         }
     }
+
+    /// Create from rule names like "zh_z", "n_l". Empty = all standard rules.
+    pub fn from_rules(rule_names: &[String]) -> Self {
+        let all = Self::standard();
+        let rules: Vec<FuzzyRule> = all.rules.into_iter()
+            .filter(|r| {
+                let key = format!("{}_{}", r.from, r.to);
+                rule_names.iter().any(|name| name == &key)
+            })
+            .collect();
+        Self { rules }
+    }
 }
 
 impl CodeNormalizer for FuzzyNormalizer {
@@ -91,6 +110,100 @@ impl CodeNormalizer for PassthroughNormalizer {
     }
 }
 
+// ── Abbreviation (简拼) ────────────────────────────────────────────
+
+/// Expands the first single-letter segment to all possible pinyin syllables
+/// starting with that letter. Only activates when ALL segments are single letters
+/// (pure abbreviation input like "nh", "nhm").
+pub struct AbbreviationNormalizer {
+    by_initial: HashMap<char, Vec<String>>,
+}
+
+impl AbbreviationNormalizer {
+    pub fn new() -> Self {
+        let mut by_initial: HashMap<char, Vec<String>> = HashMap::new();
+        for &syl in crate::segmentor::PINYIN_SYLLABLES {
+            if let Some(first) = syl.chars().next() {
+                by_initial.entry(first).or_default().push(syl.to_string());
+            }
+        }
+        Self { by_initial }
+    }
+}
+
+impl Default for AbbreviationNormalizer {
+    fn default() -> Self { Self::new() }
+}
+
+impl CodeNormalizer for AbbreviationNormalizer {
+    fn name(&self) -> &str { "abbreviation" }
+
+    fn normalize(&self, segment: &CodeSegment) -> Vec<CodeSegment> {
+        vec![segment.clone()]
+    }
+
+    fn normalize_all(&self, segments: &[CodeSegment]) -> Vec<CodeSegment> {
+        // Only activate for pure abbreviation: all segments are single letters, >= 2 segments
+        if segments.len() < 2 || !segments.iter().all(|s| s.code.len() == 1) {
+            return segments.to_vec();
+        }
+
+        let first_letter = match segments[0].code.chars().next() {
+            Some(c) => c,
+            None => return segments.to_vec(),
+        };
+        let expansions = match self.by_initial.get(&first_letter) {
+            Some(v) => v,
+            None => return segments.to_vec(),
+        };
+
+        let mut variants = Vec::with_capacity(expansions.len() * segments.len());
+        for expanded in expansions {
+            variants.push(CodeSegment {
+                code: expanded.clone(),
+                tag: format!("{}-abbrev", segments[0].tag),
+            });
+            for s in &segments[1..] {
+                variants.push(s.clone());
+            }
+        }
+        variants
+    }
+}
+
+// ── Composite (组合) ────────────────────────────────────────────────
+
+/// Chains multiple normalizers: e.g. abbreviation expansion then fuzzy variants.
+pub struct CompositeNormalizer {
+    normalizers: Vec<Box<dyn CodeNormalizer>>,
+}
+
+impl CompositeNormalizer {
+    pub fn new(normalizers: Vec<Box<dyn CodeNormalizer>>) -> Self {
+        Self { normalizers }
+    }
+}
+
+impl CodeNormalizer for CompositeNormalizer {
+    fn name(&self) -> &str { "composite" }
+
+    fn normalize(&self, segment: &CodeSegment) -> Vec<CodeSegment> {
+        let mut current = vec![segment.clone()];
+        for norm in &self.normalizers {
+            current = current.iter().flat_map(|s| norm.normalize(s)).collect();
+        }
+        current
+    }
+
+    fn normalize_all(&self, segments: &[CodeSegment]) -> Vec<CodeSegment> {
+        let mut current: Vec<CodeSegment> = segments.to_vec();
+        for norm in &self.normalizers {
+            current = norm.normalize_all(&current);
+        }
+        current
+    }
+}
+
 // ── Tests ───────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -112,8 +225,70 @@ mod tests {
         let n = FuzzyNormalizer::standard();
         let seg = CodeSegment { code: "zhang".into(), tag: "pinyin".into() };
         let vars = n.normalize(&seg);
-        // zh→z, ang→an — three variants: original, z-ang, zh-an, z-an
         assert!(vars.iter().any(|v| v.code == "zhang"));
         assert!(vars.iter().any(|v| v.code == "zang"));
+    }
+
+    #[test]
+    fn abbreviation_expands_first_letter() {
+        let norm = AbbreviationNormalizer::new();
+        let segments = vec![
+            CodeSegment { code: "n".into(), tag: "pinyin".into() },
+            CodeSegment { code: "h".into(), tag: "pinyin".into() },
+        ];
+        let variants = norm.normalize_all(&segments);
+        assert!(variants.len() > 20, "expected many variants, got {}", variants.len());
+        assert!(variants[0].code.len() > 1, "first variant should be expanded syllable");
+    }
+
+    #[test]
+    fn abbreviation_mixed_input_passthrough() {
+        let norm = AbbreviationNormalizer::new();
+        let segments = vec![
+            CodeSegment { code: "n".into(), tag: "pinyin".into() },
+            CodeSegment { code: "hao".into(), tag: "pinyin".into() },
+        ];
+        let variants = norm.normalize_all(&segments);
+        assert_eq!(variants.len(), 2);
+        assert_eq!(variants[0].code, "n");
+        assert_eq!(variants[1].code, "hao");
+    }
+
+    #[test]
+    fn abbreviation_single_segment_passthrough() {
+        let norm = AbbreviationNormalizer::new();
+        let segments = vec![
+            CodeSegment { code: "n".into(), tag: "pinyin".into() },
+        ];
+        let variants = norm.normalize_all(&segments);
+        assert_eq!(variants.len(), 1);
+    }
+
+    #[test]
+    fn abbreviation_three_letter_expands_first() {
+        let norm = AbbreviationNormalizer::new();
+        let segments = vec![
+            CodeSegment { code: "n".into(), tag: "pinyin".into() },
+            CodeSegment { code: "h".into(), tag: "pinyin".into() },
+            CodeSegment { code: "m".into(), tag: "pinyin".into() },
+        ];
+        let variants = norm.normalize_all(&segments);
+        assert_eq!(variants.len() % 3, 0);
+        assert!(variants.len() > 30);
+    }
+
+    #[test]
+    fn composite_fuzzy_then_abbreviation() {
+        let composite = CompositeNormalizer::new(vec![
+            Box::new(AbbreviationNormalizer::new()),
+            Box::new(FuzzyNormalizer::standard()),
+        ]);
+        let segments = vec![
+            CodeSegment { code: "z".into(), tag: "pinyin".into() },
+            CodeSegment { code: "g".into(), tag: "pinyin".into() },
+        ];
+        let variants = composite.normalize_all(&segments);
+        assert!(variants.iter().any(|v| v.code.starts_with("zh")),
+            "composite should produce zh variants for fuzzy z/zh");
     }
 }

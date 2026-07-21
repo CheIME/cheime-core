@@ -366,3 +366,99 @@ fn simplifier_annotated_source_preserved_in_candidates() {
     assert!(c.source.starts_with("dict"),
         "annotated source should start with 'dict', got '{}'", c.source);
 }
+
+// ── Fuzzy pinyin via config ─────────────────────────────────────────
+
+#[test]
+fn fuzzy_config_zongguo_matches_zhongguo() {
+    let config: SchemaConfig = serde_yaml::from_str(r#"
+schema_version: 1
+engine:
+  segmentors:
+    - type: pinyin_syllable
+  fuzzy_pinyin:
+    enabled: true
+"#).unwrap();
+    let p = PipelineFactory::build(&config, None, Some(real_dict().clone()), None).unwrap();
+
+    let mut comp = String::new();
+    let mut found = false;
+    for ch in "zongguo".chars() {
+        let update = p.apply(&comp, &key(ch)).unwrap();
+        comp = update.composition;
+        if update.candidates.iter().any(|c| c.text == "中国") {
+            found = true;
+        }
+    }
+    assert!(found, "fuzzy z/zh should produce 中国 for 'zongguo'");
+}
+
+#[test]
+
+#[test]
+fn abbreviation_nh_produces_nihao() {
+    let config: SchemaConfig = serde_yaml::from_str(r#"
+schema_version: 1
+engine:
+  segmentors:
+    - type: pinyin_syllable
+"#).unwrap();
+    let p = PipelineFactory::build(&config, None, Some(real_dict().clone()), None).unwrap();
+
+    let mut comp = String::new();
+    let mut found = false;
+    for ch in "nh".chars() {
+        let update = p.apply(&comp, &key(ch)).unwrap();
+        comp = update.composition;
+        if update.candidates.iter().any(|c| c.text == "你好") {
+            found = true;
+        }
+    }
+    assert!(found, "abbreviation 'nh' should produce 你好");
+}
+
+#[test]
+fn abbreviation_nhao_still_works() {
+    let config: SchemaConfig = serde_yaml::from_str(r#"
+schema_version: 1
+engine:
+  segmentors:
+    - type: pinyin_syllable
+"#).unwrap();
+    let p = PipelineFactory::build(&config, None, Some(real_dict().clone()), None).unwrap();
+
+    let mut comp = String::new();
+    let mut found = false;
+    for ch in "nhao".chars() {
+        let update = p.apply(&comp, &key(ch)).unwrap();
+        comp = update.composition;
+        if update.candidates.iter().any(|c| c.text == "你好") {
+            found = true;
+        }
+    }
+    assert!(found, "'nhao' should produce 你好 via mixed input");
+}
+
+#[test]
+fn fuzzy_plus_abbreviation_zg_matches_zhongguo() {
+    let config: SchemaConfig = serde_yaml::from_str(r#"
+schema_version: 1
+engine:
+  segmentors:
+    - type: pinyin_syllable
+  fuzzy_pinyin:
+    enabled: true
+"#).unwrap();
+    let p = PipelineFactory::build(&config, None, Some(real_dict().clone()), None).unwrap();
+
+    let mut comp = String::new();
+    let mut found = false;
+    for ch in "zg".chars() {
+        let update = p.apply(&comp, &key(ch)).unwrap();
+        comp = update.composition;
+        if update.candidates.iter().any(|c| c.text == "中国") {
+            found = true;
+        }
+    }
+    assert!(found, "fuzzy+abbreviation 'zg' should produce 中国");
+}

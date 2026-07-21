@@ -162,7 +162,7 @@ impl ComposablePipeline {
         }
         let segments = self.segmentor.segment(&proc_out.composition);
         let variants: Vec<CodeSegment> = if let Some(n) = &self.normalizer {
-            segments.iter().flat_map(|s| n.normalize(s)).collect()
+            n.normalize_all(&segments)
         } else { segments };
         let mut candidates = proc_out.inject_candidates;
         for t in &self.translators { candidates.extend(t.translate(&variants)); }

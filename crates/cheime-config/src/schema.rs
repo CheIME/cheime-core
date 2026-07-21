@@ -69,6 +69,19 @@ pub struct EngineConfig {
 
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<FilterConfig>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fuzzy_pinyin: Option<FuzzyPinyinConfig>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FuzzyPinyinConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// Specific rules to enable (e.g. ["zh_z", "n_l"]). Empty = all standard rules.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<String>,
 }
 
 // ── Processor configs ───────────────────────────────────────────────
