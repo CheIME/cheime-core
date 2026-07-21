@@ -152,7 +152,11 @@ impl DictCache {
 
     /// Extract TSV body from a .dict.yaml file (skip YAML frontmatter).
     fn extract_body(raw: &str) -> &str {
-        if let Some(p) = raw.find("\n...\n") { &raw[p + 5..] } else { raw }
+        // Rime .dict.yaml uses "---" as the header/body separator.
+        // Also support "..." (YAML end-of-document marker).
+        if let Some(p) = raw.find("\n---\n") { &raw[p + 5..] }
+        else if let Some(p) = raw.find("\n...\n") { &raw[p + 5..] }
+        else { raw }
     }
 
     /// Compile parsed entries into a CacheFragment.
