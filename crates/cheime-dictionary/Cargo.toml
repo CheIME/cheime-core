@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 cheime-model = { path = "../cheime-model" }
+cheime-tidx = { path = "../cheime-tidx" }
 rmp-serde.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_yaml.workspace = true

@@ -14,7 +14,8 @@ impl DeploymentHandle {
     }
 
     pub fn generation(&self) -> DeploymentGeneration {
-        self.0.generation
+        // Return gen or fallback to gen 0
+        self.0.generation().copied().unwrap_or_else(|| DeploymentGeneration::new(0))
     }
 }
 
@@ -35,7 +36,7 @@ impl DeploymentManager {
     }
 
     pub fn deploy(&mut self, index: CompiledIndex) -> Result<DeploymentHandle, DeployError> {
-        if index.total_entries == 0 {
+        if index.total_entries() == 0 {
             return Err(DeployError::EmptyIndex);
         }
         let handle = DeploymentHandle(Arc::new(index));

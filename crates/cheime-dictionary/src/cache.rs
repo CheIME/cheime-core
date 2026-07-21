@@ -25,7 +25,7 @@
 //! 5. Merge all fragments into final CompiledIndex
 
 use crate::body::{parse_body, DictEntry};
-use crate::index::CompiledIndex;
+use crate::index::{CompiledIndex, MemoryIndex};
 use crate::DictColumn;
 use cheime_model::DeploymentGeneration;
 use serde::{Deserialize, Serialize};
@@ -111,12 +111,12 @@ impl DictCache {
         hasher.update(combined_hash_state.as_bytes());
         let source_hash = format!("{:x}", hasher.finalize());
 
-        Ok(CompiledIndex::from_fragment(
+        Ok(MemoryIndex::from_fragment(
             generation,
             source_hash,
             total_entries,
             all_entries,
-        ))
+        ).into_compiled())
     }
 
     /// Load a single file's fragment from cache, or build + cache it.
@@ -281,24 +281,7 @@ impl std::fmt::Display for CacheError {
 impl std::error::Error for CacheError {}
 
 // ── CompiledIndex extension ────────────────────────────────────────
-
-impl CompiledIndex {
-    /// Construct from a cache fragment (avoids re-sorting).
-    pub(crate) fn from_fragment(
-        generation: DeploymentGeneration,
-        source_hash: String,
-        total_entries: usize,
-        entries: BTreeMap<String, Vec<(String, Option<i64>)>>,
-    ) -> Self {
-        Self { generation, source_hash, total_entries, entries }
-    }
-
-    /// Access the internal entries map (for testing only).
-    #[cfg(test)]
-    pub(crate) fn entries_map(&self) -> &BTreeMap<String, Vec<(String, Option<i64>)>> {
-        &self.entries
-    }
-}
+// (CompiledIndex extension methods moved to index.rs)
 
 // ── Tests ─────────────────────────────────────────────────────────
 
@@ -330,12 +313,12 @@ mod tests {
 
         // First build — cache miss
         let idx1 = cache.load_or_build(&[file.clone()], "test", &columns(), DeploymentGeneration::new(1)).unwrap();
-        assert_eq!(idx1.total_entries, 4);
+        assert_eq!(idx1.total_entries(), 4);
 
         // Second build — cache hit, same content
         let idx2 = cache.load_or_build(&[file.clone()], "test", &columns(), DeploymentGeneration::new(1)).unwrap();
-        assert_eq!(idx2.source_hash, idx1.source_hash);
-        assert_eq!(idx2.total_entries, 4);
+        assert_eq!(idx2.source_hash(), idx1.source_hash());
+        assert_eq!(idx2.total_entries(), 4);
     }
 
     #[test]
@@ -345,13 +328,13 @@ mod tests {
         let file = sample_file(&tmp, "test.dict.yaml", sample_dict());
 
         let idx1 = cache.load_or_build(&[file.clone()], "test", &columns(), DeploymentGeneration::new(1)).unwrap();
-        let hash1 = idx1.source_hash.clone();
+        let hash1 = idx1.source_hash().to_string();
 
         // Change file content
         fs::write(&file, "新\txin\t500\n").unwrap();
         let idx2 = cache.load_or_build(&[file.clone()], "test", &columns(), DeploymentGeneration::new(1)).unwrap();
-        assert_ne!(idx2.source_hash, hash1, "hash should change when file changes");
-        assert_eq!(idx2.total_entries, 1);
+        assert_ne!(idx2.source_hash(), hash1, "hash should change when file changes");
+        assert_eq!(idx2.total_entries(), 1);
     }
 
     #[test]
@@ -369,7 +352,7 @@ mod tests {
             DeploymentGeneration::new(1),
         ).unwrap();
 
-        assert_eq!(idx.total_entries, 4);
+        assert_eq!(idx.total_entries(), 4);
         // Both files' entries should be merged
         let ni_hao = idx.query("ni hao");
         assert_eq!(ni_hao.len(), 2);
@@ -388,7 +371,7 @@ mod tests {
         let idx1 = cache.load_or_build(
             &[file_a.clone(), file_b.clone()], "partial", &columns(), DeploymentGeneration::new(1),
         ).unwrap();
-        assert_eq!(idx1.total_entries, 2);
+        assert_eq!(idx1.total_entries(), 2);
 
         // Change only file_b
         fs::write(&file_b, "你\tni\t200\n呢\tne\t150\n").unwrap();
@@ -396,7 +379,7 @@ mod tests {
         let idx2 = cache.load_or_build(
             &[file_a.clone(), file_b.clone()], "partial", &columns(), DeploymentGeneration::new(1),
         ).unwrap();
-        assert_eq!(idx2.total_entries, 3);
+        assert_eq!(idx2.total_entries(), 3);
     }
 
     #[test]
