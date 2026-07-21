@@ -22,9 +22,14 @@ impl ConfigLoader {
         self.base_dir = Some(dir.into());
         self
     }
+}
 
+impl Default for ConfigLoader {
+    fn default() -> Self { Self::new() }
+}
+
+impl ConfigLoader {
     /// Load a schema from YAML, resolving all extends chains.
-    /// Parent schemas are loaded first, then child overrides are merged on top.
     pub fn load(&self, yaml: &str) -> Result<SchemaConfig, ConfigError> {
         let config: SchemaConfig = serde_yaml::from_str(yaml)
             .map_err(|e| ConfigError::Parse { path: "<inline>".into(), message: e.to_string() })?;

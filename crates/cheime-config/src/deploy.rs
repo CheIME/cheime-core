@@ -120,7 +120,7 @@ impl DeploymentManager {
         {
             let mut f = std::fs::File::create(&tmp)
                 .map_err(|e| DeployError::Io(format!("create tmp: {e}")))?;
-            write!(f, "{relative}\n")
+            writeln!(f, "{relative}")
                 .map_err(|e| DeployError::Io(format!("write tmp: {e}")))?;
             f.flush().map_err(|e| DeployError::Io(format!("flush: {e}")))?;
         }
