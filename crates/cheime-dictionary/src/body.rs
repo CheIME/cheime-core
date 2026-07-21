@@ -46,9 +46,7 @@ pub fn parse_body(lines: &str, columns: &[DictColumn]) -> Result<Vec<DictEntry>,
                 DictColumn::Code => code = val.to_owned(),
                 DictColumn::Weight => {
                     if idx < fields.len() && !val.is_empty() {
-                        weight = Some(val.parse::<i64>().map_err(|_| BodyError::InvalidWeight {
-                            line: line_num + 1, value: val.to_owned(),
-                        })?);
+                        weight = val.parse::<i64>().ok();
                     }
                 }
                 DictColumn::Stem => {
@@ -113,14 +111,9 @@ mod tests {
     #[test]
     fn malformed_line_is_reported() {
         let columns = [DictColumn::Text, DictColumn::Code];
-        // only one tab-separated field, but we expect 2 columns
+        // Only one field: rejected (minimum 2 columns)
         let err = parse_body("你好\n", &columns).unwrap_err();
-        assert!(matches!(
-            err,
-            BodyError::ColumnCount {
-                expected: 2, got: 1, ..
-            }
-        ));
+        assert!(matches!(err, BodyError::ColumnCount { expected: 2, got: 1, .. }));
     }
 
     #[test]
