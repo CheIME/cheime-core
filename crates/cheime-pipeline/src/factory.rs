@@ -1,4 +1,5 @@
 use crate::{CodeSegment, ComposablePipeline, Filter, Processor, Ranker, Segmentor, Translator};
+use crate::simplifier::{Conversion, SimplifierFilter};
 use cheime_config::schema::{EngineConfig, FilterConfig, ProcessorConfig, SchemaConfig, SegmentorConfig};
 use cheime_dictionary::CompiledIndex;
 use cheime_user_data::UserStore;
@@ -49,7 +50,30 @@ impl PipelineFactory {
     }
     fn build_filters(e: &EngineConfig) -> Result<Vec<Box<dyn Filter>>, BuildError> {
         let mut out: Vec<Box<dyn Filter>> = Vec::new();
-        for f in &e.filters { if matches!(f, FilterConfig::Uniquifier) { out.push(Box::new(DedupFilter::new())); } }
+        for f in &e.filters {
+            match f {
+                FilterConfig::Uniquifier => { out.push(Box::new(DedupFilter::new())); }
+                FilterConfig::Simplifier(cfg) => {
+                    let direction = match cfg.option_name.as_deref() {
+                        Some("s2t") | Some("simplified_to_traditional") | Some("s2t.json") => Conversion::S2T,
+                        Some("t2s") | Some("traditional_to_simplified") | Some("t2s.json") => Conversion::T2S,
+                        _ => return Err(BuildError::UnsupportedComponent { component_type: format!("simplifier({:?})", cfg.option_name), pipeline_stage: "filter".into() }),
+                    };
+                    let filter = match &cfg.opencc_config {
+                        Some(path) => {
+                            let full = std::path::Path::new(path);
+                            SimplifierFilter::from_file(full, direction, true)
+                                .map_err(|e| BuildError::MissingDictionary { name: e.to_string() })?
+                        }
+                        None => {
+                            return Err(BuildError::UnsupportedComponent { component_type: "simplifier(no opencc_config)".into(), pipeline_stage: "filter".into() })
+                        }
+                    };
+                    out.push(Box::new(filter));
+                }
+                _ => { /* skip unknown filters */ }
+            }
+        }
         Ok(out)
     }
     fn build_ranker() -> Box<dyn Ranker> {

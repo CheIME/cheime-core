@@ -9,6 +9,7 @@ pub mod normalizer;
 pub mod processor;
 pub mod ranker;
 pub mod segmentor;
+pub mod simplifier;
 pub mod translator;
 pub use builtin::BuiltinPipeline;
 use cheime_model::{Candidate, Key, KeyEvent};
