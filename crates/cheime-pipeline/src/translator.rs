@@ -53,9 +53,6 @@ impl Translator for DictTranslator {
                     } else {
                         self.index.query(seg_code)
                     };
-                    if seg_results.is_empty() {
-                        return vec![]; // segment can't resolve → give up
-                    }
                     per_seg.push(seg_results);
                 }
                 // Produce concatenated candidates: take top-N from each segment
@@ -63,8 +60,14 @@ impl Translator for DictTranslator {
                 let limit = 10;
                 let mut combined = Vec::new();
                 // Simple approach: take top-1 from each segment and concatenate
-                let concat_text: String = per_seg.iter()
-                    .map(|r| r[0].text.as_str())
+                let concat_text: String = per_seg.iter().zip(segments.iter())
+                    .map(|(results, seg)| {
+                        if results.is_empty() {
+                            seg.code.as_str() // raw code as fallback
+                        } else {
+                            results[0].text.as_str()
+                        }
+                    })
                     .collect::<Vec<_>>()
                     .join("");
                 if !concat_text.is_empty() {

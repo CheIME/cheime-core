@@ -88,6 +88,12 @@ impl<P: InputPipeline> Session<P> {
                 expected: self.identity.epoch,
             });
         }
+        // PlatformActionResult is a response to our action — its sequence is
+        // assigned by the TIP and may not follow the engine's sequence counter.
+        // Skip sequence/revision validation for it.
+        if matches!(message, FrontendMessage::PlatformActionResult { .. }) {
+            return Ok(());
+        }
         if header.sequence <= self.last_sequence {
             return Err(SessionError::StaleSequence {
                 received: header.sequence,
