@@ -171,7 +171,7 @@ pub fn write_text(w: &mut (impl Write + Seek), text: &str) -> io::Result<u32> {
 /// Compute the byte length of `write_text(text)` — for offset bookkeeping.
 #[inline]
 pub fn text_written_len(text: &str) -> u32 {
-    2 + text.as_bytes().len() as u32
+    2 + text.len() as u32
 }
 
 // ---------------------------------------------------------------------------
@@ -299,9 +299,9 @@ mod tests {
         let tmp = NamedTempFile::new().unwrap();
         let path = tmp.path();
 
-        let ni = vec![("你".to_string(), 100), ("呢".to_string(), 90)];
-        let ni_hao = vec![("你好".to_string(), 100)];
-        let na = vec![("那".to_string(), 100)];
+        let ni = [("你".to_string(), 100), ("呢".to_string(), 90)];
+        let ni_hao = [("你好".to_string(), 100)];
+        let na = [("那".to_string(), 100)];
         let code_entries: Vec<(&str, &[(String, i32)])> =
             vec![("ni", &ni[..]), ("ni hao", &ni_hao[..]), ("na", &na[..])];
 

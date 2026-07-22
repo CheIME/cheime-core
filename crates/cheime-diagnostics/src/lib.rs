@@ -310,7 +310,7 @@ mod tests {
         let s = err.to_string();
         assert!(s.starts_with("[E-CONFIG-VALIDATION]"));
         assert!(s.contains("page_size"));
-        assert_eq!(s.len() < 80, true);
+        assert!(s.len() < 80);
     }
 
     #[test]

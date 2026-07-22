@@ -103,8 +103,8 @@ mod tests {
 
         let loaded = RuntimeState::load(&path).unwrap();
         assert_eq!(loaded.active_schema.as_deref(), Some("flypy"));
-        assert_eq!(loaded.switch("half_shape"), true);
-        assert_eq!(loaded.switch("ascii_punct"), false);
+        assert!(loaded.switch("half_shape"));
+        assert!(!loaded.switch("ascii_punct"));
         assert!(loaded.last_active > 0);
     }
 
