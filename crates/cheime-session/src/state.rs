@@ -120,6 +120,7 @@ impl<P: InputPipeline> Session<P> {
         let update = self.pipeline.apply(&self.composition, &event)?;
         match update.intent {
             PipelineIntent::CommitHighlighted => self.propose_commit(),
+            PipelineIntent::CommitRaw => self.propose_commit_raw(),
             PipelineIntent::Cancel => self.propose_cancel(),
             PipelineIntent::CommitText(text) => self.propose_commit_text(&text),
             PipelineIntent::None => {
@@ -265,6 +266,21 @@ impl<P: InputPipeline> Session<P> {
             PlatformActionKind::Commit {
                 text: text.to_owned(),
             },
+            PendingEffect::ClearComposition,
+        );
+        Ok(vec![
+            self.action_message(action),
+            self.snapshot_message(SessionStatus::CommitPending),
+        ])
+    }
+    /// Commit the raw composition text as-is (Enter key / predict mode).
+    fn propose_commit_raw(&mut self) -> Result<Vec<EngineMessage>, SessionError> {
+        let text = self.composition.clone();
+        if text.is_empty() {
+            return self.propose_cancel();
+        }
+        let action = self.new_action(
+            PlatformActionKind::Commit { text },
             PendingEffect::ClearComposition,
         );
         Ok(vec![

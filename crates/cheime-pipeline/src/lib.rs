@@ -21,7 +21,10 @@ use thiserror::Error;
 pub enum PipelineIntent {
     None,
     Cancel,
+    /// Commit the highlighted candidate (Space key).
     CommitHighlighted,
+    /// Commit the raw composition text as-is (Enter key / predict mode).
+    CommitRaw,
     /// Commit a specific text directly (used by punctuator for single-commit symbols).
     CommitText(String),
 }

@@ -35,7 +35,8 @@ impl Processor for DefaultProcessor {
                 (PipelineIntent::None, false)
             }
             Key::Escape => (PipelineIntent::Cancel, true),
-            Key::Enter | Key::Space => (PipelineIntent::CommitHighlighted, true),
+            Key::Enter => (PipelineIntent::CommitRaw, true),
+            Key::Space => (PipelineIntent::CommitHighlighted, true),
         };
 
         Ok(ProcessorOutput {
@@ -87,7 +88,7 @@ mod tests {
     #[test]
     fn enter_requests_commit() {
         let out = processor().process("ni", &key(Key::Enter)).unwrap();
-        assert_eq!(out.intent, PipelineIntent::CommitHighlighted);
+        assert_eq!(out.intent, PipelineIntent::CommitRaw);
         assert!(out.consumed);
         assert_eq!(out.composition, "ni"); // composition unchanged
     }
