@@ -32,7 +32,11 @@ pub fn parse_body(lines: &str, columns: &[DictColumn]) -> Result<Vec<DictEntry>,
         }
         let fields: Vec<&str> = trimmed.split('\t').collect();
         if fields.len() < 2 {
-            return Err(BodyError::ColumnCount { line: line_num + 1, expected: 2, got: fields.len() });
+            return Err(BodyError::ColumnCount {
+                line: line_num + 1,
+                expected: 2,
+                got: fields.len(),
+            });
         }
         let mut text = String::new();
         let mut code = String::new();
@@ -50,7 +54,9 @@ pub fn parse_body(lines: &str, columns: &[DictColumn]) -> Result<Vec<DictEntry>,
                     }
                 }
                 DictColumn::Stem => {
-                    if !val.is_empty() { stem = Some(val.to_owned()); }
+                    if !val.is_empty() {
+                        stem = Some(val.to_owned());
+                    }
                 }
             }
         }
@@ -113,7 +119,14 @@ mod tests {
         let columns = [DictColumn::Text, DictColumn::Code];
         // Only one field: rejected (minimum 2 columns)
         let err = parse_body("你好\n", &columns).unwrap_err();
-        assert!(matches!(err, BodyError::ColumnCount { expected: 2, got: 1, .. }));
+        assert!(matches!(
+            err,
+            BodyError::ColumnCount {
+                expected: 2,
+                got: 1,
+                ..
+            }
+        ));
     }
 
     #[test]

@@ -28,7 +28,7 @@
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{self, BufWriter, Write, Seek, SeekFrom};
+use std::io::{self, BufWriter, Seek, Write};
 use std::path::Path;
 
 // ---------------------------------------------------------------------------
@@ -100,7 +100,12 @@ pub fn parse_header(data: &[u8]) -> Result<TidexHeader, &'static str> {
 // ---------------------------------------------------------------------------
 
 #[inline]
-pub fn write_code_idx_entry(w: &mut impl Write, code_off: u32, first_blk: u32, count: u32) -> io::Result<()> {
+pub fn write_code_idx_entry(
+    w: &mut impl Write,
+    code_off: u32,
+    first_blk: u32,
+    count: u32,
+) -> io::Result<()> {
     w.write_all(&code_off.to_le_bytes())?;
     w.write_all(&first_blk.to_le_bytes())?;
     w.write_all(&count.to_le_bytes())
@@ -176,10 +181,7 @@ pub fn text_written_len(text: &str) -> u32 {
 /// Build a `.tidx` file from pre-grouped, sorted entries.
 ///
 /// `code_entries`: ordered by code ascending, each with entries sorted by weight descending.
-pub fn write_tidex(
-    path: &Path,
-    code_entries: &[(&str, &[(String, i32)])],
-) -> io::Result<()> {
+pub fn write_tidex(path: &Path, code_entries: &[(&str, &[(String, i32)])]) -> io::Result<()> {
     // ---- Phase 1: compute all text offsets (no I/O, just bookkeeping) ----
     let mut text_offsets: HashMap<String, u32> = HashMap::new();
     let mut next_off = 0u32;
@@ -215,7 +217,7 @@ pub fn write_tidex(
     let mut block_entries: Vec<(u32, i32)> = Vec::with_capacity(entry_count as usize);
 
     for i in 0..code_entries.len() {
-        let (code, entries) = code_entries[i];
+        let (_code, entries) = code_entries[i];
         let code_off = text_pool_off + code_offsets[i];
         let first_blk = block_entries.len() as u32;
         let count = entries.len() as u32;
@@ -230,23 +232,42 @@ pub fn write_tidex(
     let mut f = BufWriter::new(File::create(path)?);
 
     // Header
-    let header = pack_header(code_count, entry_count, text_pool_size, code_idx_off, block_tbl_off, text_pool_off);
+    let header = pack_header(
+        code_count,
+        entry_count,
+        text_pool_size,
+        code_idx_off,
+        block_tbl_off,
+        text_pool_off,
+    );
     f.write_all(&header)?;
 
     // Code Index
-    debug_assert_eq!(f.stream_position()?, code_idx_off as u64, "code_idx_off mismatch");
+    debug_assert_eq!(
+        f.stream_position()?,
+        code_idx_off as u64,
+        "code_idx_off mismatch"
+    );
     for &(co, fb, cnt) in &code_idx_entries {
         write_code_idx_entry(&mut f, co, fb, cnt)?;
     }
 
     // Block Table
-    debug_assert_eq!(f.stream_position()?, block_tbl_off as u64, "block_tbl_off mismatch");
+    debug_assert_eq!(
+        f.stream_position()?,
+        block_tbl_off as u64,
+        "block_tbl_off mismatch"
+    );
     for &(to, wt) in &block_entries {
         write_block_entry(&mut f, to, wt)?;
     }
 
     // Text Pool — skip duplicates to match Phase 1 offset bookkeeping
-    debug_assert_eq!(f.stream_position()?, text_pool_off as u64, "text_pool_off mismatch");
+    debug_assert_eq!(
+        f.stream_position()?,
+        text_pool_off as u64,
+        "text_pool_off mismatch"
+    );
     let mut written = std::collections::HashSet::new();
     for i in 0..code_entries.len() {
         let (code, entries) = code_entries[i];
@@ -281,11 +302,8 @@ mod tests {
         let ni = vec![("你".to_string(), 100), ("呢".to_string(), 90)];
         let ni_hao = vec![("你好".to_string(), 100)];
         let na = vec![("那".to_string(), 100)];
-        let code_entries: Vec<(&str, &[(String, i32)])> = vec![
-            ("ni", &ni[..]),
-            ("ni hao", &ni_hao[..]),
-            ("na", &na[..]),
-        ];
+        let code_entries: Vec<(&str, &[(String, i32)])> =
+            vec![("ni", &ni[..]), ("ni hao", &ni_hao[..]), ("na", &na[..])];
 
         write_tidex(path, &code_entries).unwrap();
 
@@ -317,5 +335,4 @@ mod tests {
         h[4..8].copy_from_slice(&999u32.to_le_bytes());
         assert!(parse_header(&h).is_err());
     }
-
 }

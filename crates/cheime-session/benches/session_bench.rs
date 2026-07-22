@@ -3,14 +3,14 @@
 //! Covers the full Session::handle path: header validation, pipeline dispatch,
 //! action generation, and snapshot construction (§17.4).
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use cheime_session::Session;
-use cheime_pipeline::BuiltinPipeline;
-use cheime_protocol::{FrontendMessage, MessageHeader};
 use cheime_model::{
     CORE_PROTOCOL_VERSION, ClientInstanceId, DeploymentGeneration, Key, KeyEvent, KeyState,
     Revision, Sequence, SessionEpoch, SessionId,
 };
+use cheime_pipeline::BuiltinPipeline;
+use cheime_protocol::{FrontendMessage, MessageHeader};
+use cheime_session::Session;
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
 fn make_header() -> MessageHeader {
     MessageHeader {
@@ -30,7 +30,10 @@ fn key_message(seq: u64, rev: u64, key: Key) -> FrontendMessage {
     h.revision = Revision::new(rev);
     FrontendMessage::KeyCommand {
         header: h,
-        event: KeyEvent { key, state: KeyState::default() },
+        event: KeyEvent {
+            key,
+            state: KeyState::default(),
+        },
     }
 }
 
@@ -83,5 +86,10 @@ fn bench_commit_roundtrip(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_first_key, bench_typing_zhongguo, bench_commit_roundtrip);
+criterion_group!(
+    benches,
+    bench_first_key,
+    bench_typing_zhongguo,
+    bench_commit_roundtrip
+);
 criterion_main!(benches);

@@ -5,20 +5,26 @@
 //! Uses the rime_ice 539K-entry dictionary for realistic stress benchmarking.
 //! Data loaded once via `OnceLock` to amortize I/O.
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use cheime_config::schema::{EngineConfig, SchemaConfig, SegmentorConfig};
 use cheime_dictionary::{CompiledIndex, DictColumn, parse_body};
 use cheime_model::{DeploymentGeneration, Key, KeyEvent, KeyState};
 use cheime_pipeline::factory::PipelineFactory;
 use cheime_pipeline::{BuiltinPipeline, InputPipeline};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use std::sync::{Arc, OnceLock};
 
 fn char_key(ch: char) -> KeyEvent {
-    KeyEvent { key: Key::Character(ch), state: KeyState::default() }
+    KeyEvent {
+        key: Key::Character(ch),
+        state: KeyState::default(),
+    }
 }
 
 fn backspace_key() -> KeyEvent {
-    KeyEvent { key: Key::Backspace, state: KeyState::default() }
+    KeyEvent {
+        key: Key::Backspace,
+        state: KeyState::default(),
+    }
 }
 
 // ── Tiny builtin pipeline (original fast-path benches) ───────────────
@@ -64,8 +70,14 @@ fn bench_backspace(c: &mut Criterion) {
 fn bench_typing_zhongguo(c: &mut Criterion) {
     let p = pinyin_pipeline();
     let steps: Vec<(&str, char)> = vec![
-        ("", 'z'), ("z", 'h'), ("zh", 'o'), ("zho", 'n'),
-        ("zhon", 'g'), ("zhong", 'g'), ("zhongg", 'u'), ("zhonggu", 'o'),
+        ("", 'z'),
+        ("z", 'h'),
+        ("zh", 'o'),
+        ("zho", 'n'),
+        ("zhon", 'g'),
+        ("zhong", 'g'),
+        ("zhongg", 'u'),
+        ("zhonggu", 'o'),
     ];
     c.bench_function("pipeline/typing_zhongguo_8keys", |b| {
         b.iter(|| {
@@ -87,7 +99,11 @@ static RIME_ICE_PIPELINE: OnceLock<Arc<dyn InputPipeline>> = OnceLock::new();
 fn rime_ice_pipeline() -> &'static Arc<dyn InputPipeline> {
     RIME_ICE_PIPELINE.get_or_init(|| {
         let raw = include_str!("../../../data/dicts/rime_ice_base.dict.yaml");
-        let body = if let Some(p) = raw.find("\n...\n") { &raw[p + 5..] } else { raw };
+        let body = if let Some(p) = raw.find("\n...\n") {
+            &raw[p + 5..]
+        } else {
+            raw
+        };
         let cols = &[DictColumn::Text, DictColumn::Code, DictColumn::Weight];
         let entries = parse_body(body, cols).expect("failed to parse rime_ice body");
         eprintln!("rime_ice pipeline: {} entries loaded", entries.len());
@@ -115,8 +131,14 @@ fn rime_ice_pipeline() -> &'static Arc<dyn InputPipeline> {
 fn bench_real_typing_zhongguo(c: &mut Criterion) {
     let p = rime_ice_pipeline();
     let steps: Vec<(&str, char)> = vec![
-        ("", 'z'), ("z", 'h'), ("zh", 'o'), ("zho", 'n'),
-        ("zhon", 'g'), ("zhong", 'g'), ("zhongg", 'u'), ("zhonggu", 'o'),
+        ("", 'z'),
+        ("z", 'h'),
+        ("zh", 'o'),
+        ("zho", 'n'),
+        ("zhon", 'g'),
+        ("zhong", 'g'),
+        ("zhongg", 'u'),
+        ("zhonggu", 'o'),
     ];
     c.bench_function("pipeline/real_typing_zhongguo", |b| {
         b.iter(|| {
@@ -139,7 +161,10 @@ fn bench_real_typing_zhonghuarenmingongheguo(c: &mut Criterion) {
     let steps: Vec<(&str, char)> = {
         let mut v = Vec::new();
         for i in 0..s.chars().count() {
-            v.push((&s[..s.char_indices().nth(i).map(|(j,_)| j).unwrap_or(s.len())], s.chars().nth(i).unwrap()));
+            v.push((
+                &s[..s.char_indices().nth(i).map(|(j, _)| j).unwrap_or(s.len())],
+                s.chars().nth(i).unwrap(),
+            ));
         }
         v
     };
@@ -162,7 +187,11 @@ fn bench_real_concurrent_lookups(c: &mut Criterion) {
     let p = rime_ice_pipeline();
     // Each "session" types "nihao" one character at a time.
     let steps: Vec<(&str, char)> = vec![
-        ("", 'n'), ("n", 'i'), ("ni", 'h'), ("nih", 'a'), ("niha", 'o'),
+        ("", 'n'),
+        ("n", 'i'),
+        ("ni", 'h'),
+        ("nih", 'a'),
+        ("niha", 'o'),
     ];
     c.bench_function("pipeline/real_concurrent_lookups", |b| {
         b.iter(|| {

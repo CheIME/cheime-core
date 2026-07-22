@@ -123,7 +123,12 @@ fn candidate_snapshot_round_trip() {
 
 #[test]
 fn session_status_all_variants_round_trip() {
-    for status in [SessionStatus::Ready, SessionStatus::Composing, SessionStatus::CommitPending, SessionStatus::Transparent] {
+    for status in [
+        SessionStatus::Ready,
+        SessionStatus::Composing,
+        SessionStatus::CommitPending,
+        SessionStatus::Transparent,
+    ] {
         let json = serde_json::to_string(&status).unwrap();
         let back: SessionStatus = serde_json::from_str(&json).unwrap();
         assert_eq!(back, status);
@@ -157,7 +162,11 @@ fn key_character_deserialize_from_known_json() {
 
 #[test]
 fn key_state_round_trip() {
-    let state = KeyState { shift: true, control: false, alt: true };
+    let state = KeyState {
+        shift: true,
+        control: false,
+        alt: true,
+    };
     let json = serde_json::to_string(&state).unwrap();
     let back: KeyState = serde_json::from_str(&json).unwrap();
     assert_eq!(back, state);
@@ -175,7 +184,11 @@ fn key_state_default_is_all_false() {
 fn key_event_round_trip() {
     let event = KeyEvent {
         key: Key::Character('n'),
-        state: KeyState { shift: false, control: true, alt: false },
+        state: KeyState {
+            shift: false,
+            control: true,
+            alt: false,
+        },
     };
     let json = serde_json::to_string(&event).unwrap();
     let back: KeyEvent = serde_json::from_str(&json).unwrap();
@@ -232,7 +245,10 @@ fn ui_command_dismiss_round_trip() {
 
 #[test]
 fn platform_action_kind_set_preedit_round_trip() {
-    let kind = PlatformActionKind::SetPreedit { text: "ni".into(), cursor: 2 };
+    let kind = PlatformActionKind::SetPreedit {
+        text: "ni".into(),
+        cursor: 2,
+    };
     let json = serde_json::to_string(&kind).unwrap();
     let back: PlatformActionKind = serde_json::from_str(&json).unwrap();
     assert_eq!(back, kind);
@@ -240,10 +256,17 @@ fn platform_action_kind_set_preedit_round_trip() {
 
 #[test]
 fn platform_action_kind_commit_round_trip() {
-    let kind = PlatformActionKind::Commit { text: "你好".into() };
+    let kind = PlatformActionKind::Commit {
+        text: "你好".into(),
+    };
     let json = serde_json::to_string(&kind).unwrap();
     let back: PlatformActionKind = serde_json::from_str(&json).unwrap();
-    assert_eq!(back, PlatformActionKind::Commit { text: "你好".into() });
+    assert_eq!(
+        back,
+        PlatformActionKind::Commit {
+            text: "你好".into()
+        }
+    );
 }
 
 #[test]
@@ -279,10 +302,17 @@ fn platform_action_outcome_applied_round_trip() {
 
 #[test]
 fn platform_action_outcome_rejected_round_trip() {
-    let outcome = PlatformActionOutcome::Rejected { reason: "stale epoch".into() };
+    let outcome = PlatformActionOutcome::Rejected {
+        reason: "stale epoch".into(),
+    };
     let json = serde_json::to_string(&outcome).unwrap();
     let back: PlatformActionOutcome = serde_json::from_str(&json).unwrap();
-    assert_eq!(back, PlatformActionOutcome::Rejected { reason: "stale epoch".into() });
+    assert_eq!(
+        back,
+        PlatformActionOutcome::Rejected {
+            reason: "stale epoch".into()
+        }
+    );
 }
 
 #[test]

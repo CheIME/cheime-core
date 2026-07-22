@@ -47,7 +47,11 @@ impl PunctProcessor {
     /// Build from a PunctuatorConfig, selecting the full_shape or half_shape map.
     /// Wraps the given inner processor for non-punctuation key handling.
     pub fn new(config: &PunctuatorConfig, half_shape: bool, inner: Box<dyn Processor>) -> Self {
-        let raw_map = if half_shape { &config.half_shape } else { &config.full_shape };
+        let raw_map = if half_shape {
+            &config.half_shape
+        } else {
+            &config.full_shape
+        };
         let active = parse_map(raw_map);
         Self {
             inner,
@@ -65,7 +69,11 @@ impl PunctProcessor {
 }
 
 impl Processor for PunctProcessor {
-    fn process(&mut self, composition: &str, event: &KeyEvent) -> Result<ProcessorOutput, PipelineError> {
+    fn process(
+        &mut self,
+        composition: &str,
+        event: &KeyEvent,
+    ) -> Result<ProcessorOutput, PipelineError> {
         let ch = match event.key {
             Key::Character(c) => c,
             _ => {
@@ -105,13 +113,16 @@ impl Processor for PunctProcessor {
                     inject_candidates: vec![],
                 }),
                 PunctAction::Candidates(texts) => {
-                    let candidates: Vec<Candidate> = texts.into_iter().map(|t| Candidate {
-                        id: self.next_id(),
-                        text: t,
-                        annotation: None,
-                        source: format!("punct:{ch}"),
-                        is_emoji: false,
-                    }).collect();
+                    let candidates: Vec<Candidate> = texts
+                        .into_iter()
+                        .map(|t| Candidate {
+                            id: self.next_id(),
+                            text: t,
+                            annotation: None,
+                            source: format!("punct:{ch}"),
+                            is_emoji: false,
+                        })
+                        .collect();
                     Ok(ProcessorOutput {
                         composition: ch.to_string(),
                         intent: PipelineIntent::None,
@@ -133,7 +144,7 @@ fn parse_map(raw: &BTreeMap<String, serde_json::Value>) -> BTreeMap<char, PunctA
         let ch = match key.as_str() {
             " " => ' ',
             s if s.len() == 1 => s.chars().next().unwrap(),
-            _ => continue,  // skip non-single-char keys
+            _ => continue, // skip non-single-char keys
         };
         let action = parse_action(value);
         map.insert(ch, action);
@@ -187,7 +198,10 @@ mod tests {
     use cheime_model::KeyState;
 
     fn k(ch: char) -> KeyEvent {
-        KeyEvent { key: Key::Character(ch), state: KeyState::default() }
+        KeyEvent {
+            key: Key::Character(ch),
+            state: KeyState::default(),
+        }
     }
 
     fn dummy_processor() -> Box<dyn Processor> {
@@ -199,11 +213,17 @@ mod tests {
         full.insert(".".into(), serde_json::json!({"commit": "。"}));
         full.insert(":".into(), serde_json::json!({"commit": "："}));
         full.insert("|".into(), serde_json::json!(["·", "｜", "§", "¦"]));
-        full.insert("\"".into(), serde_json::json!({"pair": ["\u{201c}", "\u{201d}"]}));
+        full.insert(
+            "\"".into(),
+            serde_json::json!({"pair": ["\u{201c}", "\u{201d}"]}),
+        );
         full.insert("$".into(), serde_json::json!(["￥", "$", "€"]));
 
         let half = BTreeMap::new();
-        PunctuatorConfig { full_shape: full, half_shape: half }
+        PunctuatorConfig {
+            full_shape: full,
+            half_shape: half,
+        }
     }
 
     #[test]
@@ -231,7 +251,7 @@ mod tests {
         assert_eq!(out.composition, "3");
         // Now `.` after digit should pass through
         let out = p.process("3", &k('.')).unwrap();
-        assert_eq!(out.composition, "3.");  // half-width, not full-width。
+        assert_eq!(out.composition, "3."); // half-width, not full-width。
     }
 
     #[test]
@@ -240,7 +260,7 @@ mod tests {
         let _ = p.process("", &k('1'));
         let _ = p.process("1", &k('2')).unwrap();
         let out = p.process("12", &k(':')).unwrap();
-        assert_eq!(out.composition, "12:");  // half-width, for time input
+        assert_eq!(out.composition, "12:"); // half-width, for time input
     }
 
     #[test]
@@ -270,7 +290,7 @@ mod tests {
     fn digit_tracking_resets_on_non_digit() {
         let mut p = PunctProcessor::new(&test_config(), false, dummy_processor());
         let _ = p.process("", &k('3'));
-        let _ = p.process("3", &k('n'));  // letter resets digit tracking
+        let _ = p.process("3", &k('n')); // letter resets digit tracking
         let out = p.process("3n", &k('.')).unwrap();
         assert!(matches!(out.intent, PipelineIntent::CommitText(ref t) if t == "。"));
     }

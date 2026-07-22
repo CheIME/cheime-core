@@ -14,7 +14,7 @@
 //! - Diagnostics = inspect event history per-word
 
 use parking_lot::Mutex;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -223,10 +223,15 @@ pub struct PendingLearn {
 impl UserStore {
     pub fn new(device_id: &str) -> Self {
         Self {
-            device_id: device_id.to_owned(), events: Vec::new(),
-            frequency: HashMap::new(), code_texts: HashMap::new(),
-            text_frequency: HashMap::new(), pinned: HashSet::new(),
-            blocked: HashSet::new(), deleted: HashSet::new(), db: None,
+            device_id: device_id.to_owned(),
+            events: Vec::new(),
+            frequency: HashMap::new(),
+            code_texts: HashMap::new(),
+            text_frequency: HashMap::new(),
+            pinned: HashSet::new(),
+            blocked: HashSet::new(),
+            deleted: HashSet::new(),
+            db: None,
             pending: Vec::new(),
         }
     }
@@ -236,10 +241,14 @@ impl UserStore {
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
         Self::init_schema(&conn)?;
         let mut store = Self {
-            device_id: device_id.to_owned(), events: Vec::new(),
-            frequency: HashMap::new(), code_texts: HashMap::new(),
-            text_frequency: HashMap::new(), pinned: HashSet::new(),
-            blocked: HashSet::new(), deleted: HashSet::new(),
+            device_id: device_id.to_owned(),
+            events: Vec::new(),
+            frequency: HashMap::new(),
+            code_texts: HashMap::new(),
+            text_frequency: HashMap::new(),
+            pinned: HashSet::new(),
+            blocked: HashSet::new(),
+            deleted: HashSet::new(),
             db: Some(Arc::new(Mutex::new(conn))),
             pending: Vec::new(),
         };
@@ -284,7 +293,15 @@ impl UserStore {
         )?;
         let rows: Vec<(String, u64, String, String, String, String, i64)> = stmt
             .query_map([], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?))
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ))
             })?
             .filter_map(|r| r.ok())
             .collect();
@@ -294,21 +311,37 @@ impl UserStore {
         for (eid, ts, op, schema, text, code, delta) in &rows {
             let ev = match op.as_str() {
                 "learn_word" => UserEvent::LearnWord {
-                    event_id: eid.clone(), timestamp: *ts, schema: schema.clone(),
-                    text: text.clone(), code: code.clone(), delta: *delta,
+                    event_id: eid.clone(),
+                    timestamp: *ts,
+                    schema: schema.clone(),
+                    text: text.clone(),
+                    code: code.clone(),
+                    delta: *delta,
                 },
                 "update_frequency" => UserEvent::UpdateFrequency {
-                    event_id: eid.clone(), timestamp: *ts, schema: schema.clone(),
-                    text: text.clone(), delta: *delta,
+                    event_id: eid.clone(),
+                    timestamp: *ts,
+                    schema: schema.clone(),
+                    text: text.clone(),
+                    delta: *delta,
                 },
                 "delete_word" => UserEvent::DeleteWord {
-                    event_id: eid.clone(), timestamp: *ts, schema: schema.clone(), text: text.clone(),
+                    event_id: eid.clone(),
+                    timestamp: *ts,
+                    schema: schema.clone(),
+                    text: text.clone(),
                 },
                 "pin_candidate" => UserEvent::PinCandidate {
-                    event_id: eid.clone(), timestamp: *ts, schema: schema.clone(), text: text.clone(),
+                    event_id: eid.clone(),
+                    timestamp: *ts,
+                    schema: schema.clone(),
+                    text: text.clone(),
                 },
                 "block_candidate" => UserEvent::BlockCandidate {
-                    event_id: eid.clone(), timestamp: *ts, schema: schema.clone(), text: text.clone(),
+                    event_id: eid.clone(),
+                    timestamp: *ts,
+                    schema: schema.clone(),
+                    text: text.clone(),
                 },
                 _ => continue,
             };
@@ -316,13 +349,16 @@ impl UserStore {
         }
 
         // Read pinned/blocked/deleted tables
-        let read_strs = |db: &Connection, table: &str| -> Result<Vec<(String, String)>, rusqlite::Error> {
-            let sql = format!("SELECT schema_name, text FROM {table}");
-            let mut s = db.prepare(&sql)?;
-            let rows: Vec<_> = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-                .filter_map(|r| r.ok()).collect();
-            Ok(rows)
-        };
+        let read_strs =
+            |db: &Connection, table: &str| -> Result<Vec<(String, String)>, rusqlite::Error> {
+                let sql = format!("SELECT schema_name, text FROM {table}");
+                let mut s = db.prepare(&sql)?;
+                let rows: Vec<_> = s
+                    .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                    .filter_map(|r| r.ok())
+                    .collect();
+                Ok(rows)
+            };
 
         let pinned_rows = read_strs(&db, "pinned")?;
         let blocked_rows = read_strs(&db, "blocked")?;
@@ -334,9 +370,15 @@ impl UserStore {
             self.apply_to_cache(ev);
         }
         self.events = event_list;
-        for (s, t) in pinned_rows { self.pinned.insert((s, t)); }
-        for (s, t) in blocked_rows { self.blocked.insert((s, t)); }
-        for (s, t) in deleted_rows { self.deleted.insert((s, t)); }
+        for (s, t) in pinned_rows {
+            self.pinned.insert((s, t));
+        }
+        for (s, t) in blocked_rows {
+            self.blocked.insert((s, t));
+        }
+        for (s, t) in deleted_rows {
+            self.deleted.insert((s, t));
+        }
 
         Ok(())
     }
@@ -351,28 +393,69 @@ impl UserStore {
 
     fn persist_event(db: &Connection, event: &UserEvent) -> Result<(), rusqlite::Error> {
         match event {
-            UserEvent::LearnWord { event_id, timestamp, schema, text, code, delta } => {
-                db.execute("INSERT OR REPLACE INTO events VALUES (?1,?2,'learn_word',?3,?4,?5,?6)",
-                    params![event_id, *timestamp as i64, schema, text, code, *delta])?;
+            UserEvent::LearnWord {
+                event_id,
+                timestamp,
+                schema,
+                text,
+                code,
+                delta,
+            } => {
+                db.execute(
+                    "INSERT OR REPLACE INTO events VALUES (?1,?2,'learn_word',?3,?4,?5,?6)",
+                    params![event_id, *timestamp as i64, schema, text, code, *delta],
+                )?;
             }
-            UserEvent::UpdateFrequency { event_id, timestamp, schema, text, delta } => {
-                db.execute("INSERT OR REPLACE INTO events VALUES (?1,?2,'update_frequency',?3,?4,'',?5)",
-                    params![event_id, *timestamp as i64, schema, text, *delta])?;
+            UserEvent::UpdateFrequency {
+                event_id,
+                timestamp,
+                schema,
+                text,
+                delta,
+            } => {
+                db.execute(
+                    "INSERT OR REPLACE INTO events VALUES (?1,?2,'update_frequency',?3,?4,'',?5)",
+                    params![event_id, *timestamp as i64, schema, text, *delta],
+                )?;
             }
-            UserEvent::DeleteWord { event_id, timestamp, schema, text } => {
+            UserEvent::DeleteWord {
+                event_id,
+                timestamp,
+                schema,
+                text,
+            } => {
                 db.execute("INSERT OR REPLACE INTO events(id,timestamp,operation,schema_name,text) VALUES (?1,?2,'delete_word',?3,?4)",
                     params![event_id, *timestamp as i64, schema, text])?;
-                db.execute("INSERT OR REPLACE INTO deleted VALUES (?1,?2)", params![schema, text])?;
+                db.execute(
+                    "INSERT OR REPLACE INTO deleted VALUES (?1,?2)",
+                    params![schema, text],
+                )?;
             }
-            UserEvent::PinCandidate { event_id, timestamp, schema, text } => {
+            UserEvent::PinCandidate {
+                event_id,
+                timestamp,
+                schema,
+                text,
+            } => {
                 db.execute("INSERT OR REPLACE INTO events(id,timestamp,operation,schema_name,text) VALUES (?1,?2,'pin_candidate',?3,?4)",
                     params![event_id, *timestamp as i64, schema, text])?;
-                db.execute("INSERT OR REPLACE INTO pinned VALUES (?1,?2)", params![schema, text])?;
+                db.execute(
+                    "INSERT OR REPLACE INTO pinned VALUES (?1,?2)",
+                    params![schema, text],
+                )?;
             }
-            UserEvent::BlockCandidate { event_id, timestamp, schema, text } => {
+            UserEvent::BlockCandidate {
+                event_id,
+                timestamp,
+                schema,
+                text,
+            } => {
                 db.execute("INSERT OR REPLACE INTO events(id,timestamp,operation,schema_name,text) VALUES (?1,?2,'block_candidate',?3,?4)",
                     params![event_id, *timestamp as i64, schema, text])?;
-                db.execute("INSERT OR REPLACE INTO blocked VALUES (?1,?2)", params![schema, text])?;
+                db.execute(
+                    "INSERT OR REPLACE INTO blocked VALUES (?1,?2)",
+                    params![schema, text],
+                )?;
             }
             _ => {}
         }
@@ -381,16 +464,37 @@ impl UserStore {
 
     fn apply_to_cache(&mut self, event: &UserEvent) {
         match event {
-            UserEvent::LearnWord { schema, text, code, delta, .. } => {
+            UserEvent::LearnWord {
+                schema,
+                text,
+                code,
+                delta,
+                ..
+            } => {
                 let k = (schema.clone(), text.clone());
-                if self.deleted.contains(&k) { self.deleted.remove(&k); }
-                *self.frequency.entry((schema.clone(), code.clone())).or_default() += delta;
-                self.code_texts.entry((schema.clone(), code.clone())).or_default().insert(text.clone());
+                if self.deleted.contains(&k) {
+                    self.deleted.remove(&k);
+                }
+                *self
+                    .frequency
+                    .entry((schema.clone(), code.clone()))
+                    .or_default() += delta;
+                self.code_texts
+                    .entry((schema.clone(), code.clone()))
+                    .or_default()
+                    .insert(text.clone());
                 *self.text_frequency.entry(k).or_default() += delta;
             }
-            UserEvent::UpdateFrequency { schema, text, delta, .. } => {
+            UserEvent::UpdateFrequency {
+                schema,
+                text,
+                delta,
+                ..
+            } => {
                 let k = (schema.clone(), text.clone());
-                if !self.deleted.contains(&k) { *self.text_frequency.entry(k).or_default() += delta; }
+                if !self.deleted.contains(&k) {
+                    *self.text_frequency.entry(k).or_default() += delta;
+                }
             }
             UserEvent::DeleteWord { schema, text, .. } => {
                 let k = (schema.clone(), text.clone());
@@ -434,7 +538,12 @@ impl UserStore {
     pub fn confirm_all_pending(&mut self) {
         let pending: Vec<_> = self.pending.drain(..).collect();
         for p in pending {
-            self.apply(UserEvent::learn_word(&self.device_id, &p.schema, &p.text, &p.code));
+            self.apply(UserEvent::learn_word(
+                &self.device_id,
+                &p.schema,
+                &p.text,
+                &p.code,
+            ));
         }
     }
 
@@ -442,18 +551,32 @@ impl UserStore {
         let mut cs = Vec::new();
         let mut seen = HashSet::new();
         for ((schema, sc), texts) in &self.code_texts {
-            if sc != code { continue; }
+            if sc != code {
+                continue;
+            }
             for text in texts {
-                if !seen.insert(text.clone()) { continue; }
-                let freq = self.text_frequency.get(&(schema.clone(), text.clone())).copied().unwrap_or(0);
+                if !seen.insert(text.clone()) {
+                    continue;
+                }
+                let freq = self
+                    .text_frequency
+                    .get(&(schema.clone(), text.clone()))
+                    .copied()
+                    .unwrap_or(0);
                 cs.push(UserCandidate {
                     pinned: self.pinned.contains(&(schema.clone(), text.clone())),
                     blocked: self.blocked.contains(&(schema.clone(), text.clone())),
-                    text: text.clone(), code: sc.clone(), frequency: freq,
+                    text: text.clone(),
+                    code: sc.clone(),
+                    frequency: freq,
                 });
             }
         }
-        cs.sort_by(|a, b| b.pinned.cmp(&a.pinned).then_with(|| b.frequency.cmp(&a.frequency)));
+        cs.sort_by(|a, b| {
+            b.pinned
+                .cmp(&a.pinned)
+                .then_with(|| b.frequency.cmp(&a.frequency))
+        });
         cs
     }
     pub fn is_pinned(&self, schema: &str, text: &str) -> bool {
@@ -463,10 +586,17 @@ impl UserStore {
         self.blocked.contains(&(schema.to_owned(), text.to_owned()))
     }
     pub fn frequency(&self, schema: &str, text: &str) -> i64 {
-        *self.text_frequency.get(&(schema.to_owned(), text.to_owned())).unwrap_or(&0)
+        *self
+            .text_frequency
+            .get(&(schema.to_owned(), text.to_owned()))
+            .unwrap_or(&0)
     }
-    pub fn events(&self) -> &[UserEvent] { &self.events }
-    pub fn is_persistent(&self) -> bool { self.db.is_some() }
+    pub fn events(&self) -> &[UserEvent] {
+        &self.events
+    }
+    pub fn is_persistent(&self) -> bool {
+        self.db.is_some()
+    }
 }
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -581,8 +711,10 @@ mod tests {
             for i in 0..50 {
                 let mut store = s.lock();
                 store.apply(UserEvent::learn_word(
-                    "test", "qp",
-                    &format!("word_{i}"), "wd",
+                    "test",
+                    "qp",
+                    &format!("word_{i}"),
+                    "wd",
                 ));
                 drop(store);
             }
@@ -617,8 +749,10 @@ mod tests {
                 for i in 0..25 {
                     let mut store = s.lock();
                     store.apply(UserEvent::learn_word(
-                        "test", "qp",
-                        &format!("thread{t}_word{i}"), "wd",
+                        "test",
+                        "qp",
+                        &format!("thread{t}_word{i}"),
+                        "wd",
                     ));
                     drop(store);
                 }

@@ -48,22 +48,18 @@ impl BuiltinPipeline {
             .flatten()
             .enumerate()
             .map(|(index, entry)| Candidate {
-                            id: CandidateId::new(index as u64 + 1),
-                            text: entry.text.clone(),
-                            annotation: Some(composition.to_owned()),
-                            source: String::from("builtin"),
-                            is_emoji: false,
-                        })
+                id: CandidateId::new(index as u64 + 1),
+                text: entry.text.clone(),
+                annotation: Some(composition.to_owned()),
+                source: String::from("builtin"),
+                is_emoji: false,
+            })
             .collect()
     }
 }
 
 impl InputPipeline for BuiltinPipeline {
-    fn apply(
-        &self,
-        composition: &str,
-        event: &KeyEvent,
-    ) -> Result<PipelineUpdate, PipelineError> {
+    fn apply(&self, composition: &str, event: &KeyEvent) -> Result<PipelineUpdate, PipelineError> {
         use cheime_model::Key;
         let mut next = composition.to_owned();
         let intent = match event.key {

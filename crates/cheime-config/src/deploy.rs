@@ -39,7 +39,9 @@ impl std::fmt::Display for DeployError {
             Self::Parse(e) => write!(f, "parse: {e}"),
             Self::Validation(msgs) => {
                 write!(f, "validation errors:")?;
-                for m in msgs { write!(f, "\n  - {m}")?; }
+                for m in msgs {
+                    write!(f, "\n  - {m}")?;
+                }
                 Ok(())
             }
             Self::MissingCurrent => write!(f, "no current deployment"),
@@ -63,7 +65,9 @@ pub struct DeploymentHandle {
 }
 
 impl DeploymentHandle {
-    pub fn dir(&self) -> &Path { &self.dir }
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
 }
 
 // ── Manager ────────────────────────────────────────────────────────
@@ -74,13 +78,19 @@ pub struct DeploymentManager {
 }
 
 impl DeploymentManager {
-    pub fn new(runtime_dir: PathBuf) -> Self { Self { runtime_dir } }
+    pub fn new(runtime_dir: PathBuf) -> Self {
+        Self { runtime_dir }
+    }
 
     /// Returns the directory where deployment subdirectories live.
-    fn deployments_dir(&self) -> PathBuf { self.runtime_dir.join("deployments") }
+    fn deployments_dir(&self) -> PathBuf {
+        self.runtime_dir.join("deployments")
+    }
 
     /// Returns the path to the current-bootstrap file.
-    fn current_file(&self) -> PathBuf { self.runtime_dir.join("current.txt") }
+    fn current_file(&self) -> PathBuf {
+        self.runtime_dir.join("current.txt")
+    }
 
     // ── Deploy ─────────────────────────────────────────────────────
 
@@ -88,8 +98,8 @@ impl DeploymentManager {
     /// becomes the active one. On failure, the current deployment is untouched.
     pub fn deploy(&self, yaml: &str) -> Result<DeploymentHandle, DeployError> {
         // 1. Parse
-        let schema: SchemaConfig = serde_yaml::from_str(yaml)
-            .map_err(|e| DeployError::Parse(e.to_string()))?;
+        let schema: SchemaConfig =
+            serde_yaml::from_str(yaml).map_err(|e| DeployError::Parse(e.to_string()))?;
 
         // 2. Validate
         let errors = Self::validate(&schema);
@@ -120,9 +130,9 @@ impl DeploymentManager {
         {
             let mut f = std::fs::File::create(&tmp)
                 .map_err(|e| DeployError::Io(format!("create tmp: {e}")))?;
-            writeln!(f, "{relative}")
-                .map_err(|e| DeployError::Io(format!("write tmp: {e}")))?;
-            f.flush().map_err(|e| DeployError::Io(format!("flush: {e}")))?;
+            writeln!(f, "{relative}").map_err(|e| DeployError::Io(format!("write tmp: {e}")))?;
+            f.flush()
+                .map_err(|e| DeployError::Io(format!("flush: {e}")))?;
         }
         std::fs::rename(&tmp, self.current_file())
             .map_err(|e| DeployError::Io(format!("atomic swap: {e}")))?;
@@ -141,22 +151,28 @@ impl DeploymentManager {
     /// Read the currently-active deployment.
     pub fn current(&self) -> Result<DeploymentHandle, DeployError> {
         let current_path = self.current_file();
-        let content = std::fs::read_to_string(&current_path)
-            .map_err(|_| DeployError::MissingCurrent)?;
+        let content =
+            std::fs::read_to_string(&current_path).map_err(|_| DeployError::MissingCurrent)?;
         let relative = content.trim();
         let deploy_dir = self.runtime_dir.join(relative);
         let schema_path = deploy_dir.join("schema.yaml");
         let yaml = std::fs::read_to_string(&schema_path)
             .map_err(|e| DeployError::Io(format!("read schema: {e}")))?;
-        let schema: SchemaConfig = serde_yaml::from_str(&yaml)
-            .map_err(|e| DeployError::Parse(e.to_string()))?;
+        let schema: SchemaConfig =
+            serde_yaml::from_str(&yaml).map_err(|e| DeployError::Parse(e.to_string()))?;
         let hash = Self::short_hash(&yaml);
         // Parse timestamp from dir name
-        let dir_name = deploy_dir.file_name()
+        let dir_name = deploy_dir
+            .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown");
         let deployed_at = dir_name.split('-').take(2).collect::<Vec<_>>().join("-");
-        Ok(DeploymentHandle { dir: deploy_dir, schema, deployed_at, content_hash: hash })
+        Ok(DeploymentHandle {
+            dir: deploy_dir,
+            schema,
+            deployed_at,
+            content_hash: hash,
+        })
     }
 
     /// List all deployed versions (newest first).
@@ -171,7 +187,9 @@ impl DeploymentManager {
                 let e = e.ok()?;
                 if e.file_type().ok()?.is_dir() {
                     e.file_name().into_string().ok()
-                } else { None }
+                } else {
+                    None
+                }
             })
             .collect();
         names.sort_by(|a, b| b.cmp(a)); // newest first
@@ -193,7 +211,11 @@ impl DeploymentManager {
         errors
     }
 
-    fn write_diagnostics(dir: &Path, schema: &SchemaConfig, errors: &[String]) -> Result<(), DeployError> {
+    fn write_diagnostics(
+        dir: &Path,
+        schema: &SchemaConfig,
+        errors: &[String],
+    ) -> Result<(), DeployError> {
         let diag = serde_json::json!({
             "schema_version": schema.schema_version,
             "validation_errors": errors,
@@ -205,8 +227,8 @@ impl DeploymentManager {
             },
         });
         let path = dir.join("diagnostics.json");
-        let json = serde_json::to_string_pretty(&diag)
-            .map_err(|e| DeployError::Parse(e.to_string()))?;
+        let json =
+            serde_json::to_string_pretty(&diag).map_err(|e| DeployError::Parse(e.to_string()))?;
         std::fs::write(&path, json)
             .map_err(|e| DeployError::Io(format!("write diagnostics: {e}")))?;
         Ok(())
@@ -218,7 +240,9 @@ impl DeploymentManager {
             .unwrap_or_default()
             .as_secs();
         // Simple ISO-like: 2026-07-21T08-30-00Z (colons not allowed in Windows paths)
-        let secs = ts % 60; let mins = (ts / 60) % 60; let hours = (ts / 3600) % 24;
+        let secs = ts % 60;
+        let mins = (ts / 60) % 60;
+        let hours = (ts / 3600) % 24;
         let days = ts / 86400;
         // Approximate date from epoch — good enough for deployment tagging
         format!("EPOCH-{days:05}-{hours:02}-{mins:02}-{secs:02}")
@@ -227,8 +251,7 @@ impl DeploymentManager {
     fn short_hash(input: &str) -> String {
         let mut hasher = Sha256::new();
         hasher.update(input.as_bytes());
-        format!("{:x}", hasher.finalize())
-            .chars().take(8).collect()
+        format!("{:x}", hasher.finalize()).chars().take(8).collect()
     }
 }
 

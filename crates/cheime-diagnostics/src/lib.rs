@@ -111,35 +111,50 @@ pub struct DiagnosticError {
 impl DiagnosticError {
     pub fn new(code: impl Into<String>, severity: Severity, message: impl Into<String>) -> Self {
         Self {
-            code: code.into(), severity, message: message.into(),
-            technical_reason: None, file: None, config_path: None,
-            schema: None, component: None, platform: None,
-            capability: None, fix_suggestion: None, log_id: None,
+            code: code.into(),
+            severity,
+            message: message.into(),
+            technical_reason: None,
+            file: None,
+            config_path: None,
+            schema: None,
+            component: None,
+            platform: None,
+            capability: None,
+            fix_suggestion: None,
+            log_id: None,
         }
     }
 
     // ── Builder methods ────────────────────────────────────────────
 
     pub fn with_technical(mut self, reason: impl Into<String>) -> Self {
-        self.technical_reason = Some(reason.into()); self
+        self.technical_reason = Some(reason.into());
+        self
     }
     pub fn with_file(mut self, f: impl Into<String>) -> Self {
-        self.file = Some(f.into()); self
+        self.file = Some(f.into());
+        self
     }
     pub fn with_config_path(mut self, p: impl Into<String>) -> Self {
-        self.config_path = Some(p.into()); self
+        self.config_path = Some(p.into());
+        self
     }
     pub fn with_schema(mut self, s: impl Into<String>) -> Self {
-        self.schema = Some(s.into()); self
+        self.schema = Some(s.into());
+        self
     }
     pub fn with_component(mut self, c: impl Into<String>) -> Self {
-        self.component = Some(c.into()); self
+        self.component = Some(c.into());
+        self
     }
     pub fn with_fix(mut self, s: impl Into<String>) -> Self {
-        self.fix_suggestion = Some(s.into()); self
+        self.fix_suggestion = Some(s.into());
+        self
     }
     pub fn with_log_id(mut self, id: impl Into<String>) -> Self {
-        self.log_id = Some(id.into()); self
+        self.log_id = Some(id.into());
+        self
     }
 
     // ── Display ────────────────────────────────────────────────────
@@ -156,15 +171,33 @@ impl DiagnosticError {
             format!("severity: {}", self.severity),
             format!("message: {}", self.message),
         ];
-        if let Some(ref r) = self.technical_reason { lines.push(format!("reason: {r}")); }
-        if let Some(ref f) = self.file { lines.push(format!("file: {f}")); }
-        if let Some(ref p) = self.config_path { lines.push(format!("path: {p}")); }
-        if let Some(ref s) = self.schema { lines.push(format!("schema: {s}")); }
-        if let Some(ref c) = self.component { lines.push(format!("component: {c}")); }
-        if let Some(ref p) = self.platform { lines.push(format!("platform: {p}")); }
-        if let Some(ref c) = self.capability { lines.push(format!("capability: {c}")); }
-        if let Some(ref f) = self.fix_suggestion { lines.push(format!("fix: {f}")); }
-        if let Some(ref id) = self.log_id { lines.push(format!("log_id: {id}")); }
+        if let Some(ref r) = self.technical_reason {
+            lines.push(format!("reason: {r}"));
+        }
+        if let Some(ref f) = self.file {
+            lines.push(format!("file: {f}"));
+        }
+        if let Some(ref p) = self.config_path {
+            lines.push(format!("path: {p}"));
+        }
+        if let Some(ref s) = self.schema {
+            lines.push(format!("schema: {s}"));
+        }
+        if let Some(ref c) = self.component {
+            lines.push(format!("component: {c}"));
+        }
+        if let Some(ref p) = self.platform {
+            lines.push(format!("platform: {p}"));
+        }
+        if let Some(ref c) = self.capability {
+            lines.push(format!("capability: {c}"));
+        }
+        if let Some(ref f) = self.fix_suggestion {
+            lines.push(format!("fix: {f}"));
+        }
+        if let Some(ref id) = self.log_id {
+            lines.push(format!("log_id: {id}"));
+        }
         lines.join("\n")
     }
 }
@@ -232,7 +265,10 @@ impl DiagnosticError {
         Self::new(
             "E-DEPLOY-IO",
             Severity::ConfigDeploy,
-            format!("Deployment {op} failed for {path}: {reason}", reason = reason.into()),
+            format!(
+                "Deployment {op} failed for {path}: {reason}",
+                reason = reason.into()
+            ),
         )
         .with_file(path)
         .with_fix("Check filesystem permissions and disk space")
@@ -257,7 +293,9 @@ mod tests {
     #[test]
     fn structured_error_formats_full_diagnostics() {
         let err = DiagnosticError::rime_unsupported(
-            "abc_translator", "example.schema.yaml", "engine/translators/2",
+            "abc_translator",
+            "example.schema.yaml",
+            "engine/translators/2",
         );
         let detail = err.detailed();
         assert!(detail.contains("E-RIME-UNSUPPORTED-COMP"));
@@ -277,20 +315,16 @@ mod tests {
 
     #[test]
     fn json_serialization_omits_none_fields() {
-        let err = DiagnosticError::new(
-            "E-TEST", Severity::Network, "test message",
-        );
+        let err = DiagnosticError::new("E-TEST", Severity::Network, "test message");
         let json = serde_json::to_string(&err).unwrap();
         assert!(json.contains("\"code\":\"E-TEST\""));
-        assert!(!json.contains("\"file\":"));   // None fields omitted
+        assert!(!json.contains("\"file\":")); // None fields omitted
         assert!(!json.contains("\"schema\":"));
     }
 
     #[test]
     fn json_includes_set_fields() {
-        let err = DiagnosticError::deploy_io(
-            "write", "/tmp/deploy", "permission denied",
-        );
+        let err = DiagnosticError::deploy_io("write", "/tmp/deploy", "permission denied");
         let json = serde_json::to_string(&err).unwrap();
         assert!(json.contains("\"file\":\"/tmp/deploy\""));
         assert!(json.contains("\"fix_suggestion\""));

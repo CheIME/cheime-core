@@ -14,7 +14,12 @@ pub struct RankWeights {
 }
 
 impl Default for RankWeights {
-    fn default() -> Self { Self { source: 1.0, code_length: 0.3 } }
+    fn default() -> Self {
+        Self {
+            source: 1.0,
+            code_length: 0.3,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -23,29 +28,43 @@ pub struct UnifiedRanker {
 }
 
 impl UnifiedRanker {
-    pub fn new(weights: RankWeights) -> Self { Self { weights } }
+    pub fn new(weights: RankWeights) -> Self {
+        Self { weights }
+    }
 
     fn score(&self, c: &Candidate) -> f64 {
         let mut s = source_priority(&c.source) * self.weights.source;
         s += self.weights.code_length * (1.0 / (c.text.chars().count() as f64).max(1.0));
-        if c.is_emoji { s += 0.05; }
+        if c.is_emoji {
+            s += 0.05;
+        }
         s
     }
 }
 
 fn source_priority(src: &str) -> f64 {
-    if src.starts_with("user") { 1.0 }
-    else if src.starts_with("dict") { 0.8 }
-    else if src == "builtin" { 0.7 }
-    else if src == "emoji" { 0.5 }
-    else { 0.3 }
+    if src.starts_with("user") {
+        1.0
+    } else if src.starts_with("dict") {
+        0.8
+    } else if src == "builtin" {
+        0.7
+    } else if src == "emoji" {
+        0.5
+    } else {
+        0.3
+    }
 }
 
 impl Ranker for UnifiedRanker {
-    fn name(&self) -> &str { "unified" }
+    fn name(&self) -> &str {
+        "unified"
+    }
     fn rank(&self, mut candidates: Vec<Candidate>) -> Vec<Candidate> {
         candidates.sort_by(|a, b| {
-            self.score(b).partial_cmp(&self.score(a)).unwrap_or(Ordering::Equal)
+            self.score(b)
+                .partial_cmp(&self.score(a))
+                .unwrap_or(Ordering::Equal)
         });
         candidates
     }
@@ -80,7 +99,10 @@ mod tests {
 
     #[test]
     fn shorter_code_preferred() {
-        let r = UnifiedRanker::new(RankWeights { code_length: 10.0, ..Default::default() });
+        let r = UnifiedRanker::new(RankWeights {
+            code_length: 10.0,
+            ..Default::default()
+        });
         let input = vec![
             Candidate::text(CandidateId::new(1), "中华人民共和国", "dict"),
             Candidate::text(CandidateId::new(2), "中国", "dict"),
@@ -92,13 +114,19 @@ mod tests {
     #[test]
     fn simplifier_annotated_source_retains_dict_priority() {
         // Use equal-length texts to isolate source_priority effect
-        let r = UnifiedRanker::new(RankWeights { source: 1.0, code_length: 0.0 }); // disable code_length
+        let r = UnifiedRanker::new(RankWeights {
+            source: 1.0,
+            code_length: 0.0,
+        }); // disable code_length
         let input = vec![
-            Candidate::text(CandidateId::new(1), "中A", "builtin"),              // 0.7
-            Candidate::text(CandidateId::new(2), "中B", "dict:abc→simplified"),  // annotated, should be 0.8
+            Candidate::text(CandidateId::new(1), "中A", "builtin"), // 0.7
+            Candidate::text(CandidateId::new(2), "中B", "dict:abc→simplified"), // annotated, should be 0.8
         ];
         let result = r.rank(input);
-        assert_eq!(result[0].text, "中B", "simplifier-annotated dict (0.8) should rank above builtin (0.7)");
+        assert_eq!(
+            result[0].text, "中B",
+            "simplifier-annotated dict (0.8) should rank above builtin (0.7)"
+        );
     }
     #[test]
     fn annotated_dict_source_ranks_above_builtin() {
@@ -108,8 +136,10 @@ mod tests {
             Candidate::text(CandidateId::new(2), "中国", "dict:abc→simplified"),
         ];
         let result = r.rank(input);
-        assert_eq!(result[0].source, "dict:abc→simplified",
-            "annotated dict source should rank above builtin");
+        assert_eq!(
+            result[0].source, "dict:abc→simplified",
+            "annotated dict source should rank above builtin"
+        );
     }
 
     #[test]
@@ -120,8 +150,10 @@ mod tests {
             Candidate::text(CandidateId::new(2), "中国", "user:abc→simplified"),
         ];
         let result = r.rank(input);
-        assert_eq!(result[0].source, "user:abc→simplified",
-            "annotated user source should still rank highest");
+        assert_eq!(
+            result[0].source, "user:abc→simplified",
+            "annotated user source should still rank highest"
+        );
     }
 
     #[test]
@@ -135,8 +167,14 @@ mod tests {
         ];
         let result = r.rank(input);
         let sources: Vec<&str> = result.iter().map(|c| c.source.as_str()).collect();
-        assert_eq!(sources[0], "user_dict→simplified", "user-annotated should be first");
-        assert_eq!(sources[1], "dict:s2t→traditional", "dict-annotated should be second");
+        assert_eq!(
+            sources[0], "user_dict→simplified",
+            "user-annotated should be first"
+        );
+        assert_eq!(
+            sources[1], "dict:s2t→traditional",
+            "dict-annotated should be second"
+        );
         assert_eq!(sources[2], "emoji", "emoji should be third");
         assert_eq!(sources[3], "unknown:x", "unknown should be last");
     }

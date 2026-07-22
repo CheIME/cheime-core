@@ -30,12 +30,33 @@ impl Translator for DictTranslator {
     }
 
     fn translate(&self, segments: &[CodeSegment]) -> Vec<Candidate> {
-        let code = segments.iter().map(|s| s.code.as_str()).collect::<Vec<_>>().join(" ");
+        let code = segments
+            .iter()
+            .map(|s| s.code.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
         match segments.len() {
             0 => vec![],
-            1 if code.len() == 1 => self.index.query_prefix(&code, 100),   // single letter: prefix all codes
-            1 => self.index.query(&code),                                  // multi-letter: exact match
-            _ => self.index.query_prefix(&code, 10),                       // multi-segment: prefix
+            1 if code.len() == 1 => self.index.query_prefix(&code, 100),
+            1 => self.index.query(&code),
+            _ => {
+                let results = self.index.query_prefix(&code, 10);
+                if results.is_empty() {
+                    // Fallback: query each segment independently (e.g. "ninininini" -> "你你你你你")
+                    let mut all = Vec::new();
+                    for seg in segments {
+                        let seg_code = &seg.code;
+                        if seg_code.len() == 1 {
+                            all.extend(self.index.query_prefix(seg_code, 5));
+                        } else {
+                            all.extend(self.index.query(seg_code));
+                        }
+                    }
+                    all
+                } else {
+                    results
+                }
+            }
         }
     }
 }
@@ -52,8 +73,14 @@ impl Translator for PassthroughTranslator {
         "passthrough"
     }
     fn translate(&self, segments: &[CodeSegment]) -> Vec<Candidate> {
-        if segments.is_empty() { return vec![]; }
-        let text = segments.iter().map(|s| s.code.as_str()).collect::<Vec<_>>().join("");
+        if segments.is_empty() {
+            return vec![];
+        }
+        let text = segments
+            .iter()
+            .map(|s| s.code.as_str())
+            .collect::<Vec<_>>()
+            .join("");
         vec![Candidate {
             id: cheime_model::CandidateId::new(1),
             text,
@@ -85,7 +112,11 @@ impl Translator for UserDictTranslator {
         "user_dict"
     }
     fn translate(&self, segments: &[CodeSegment]) -> Vec<Candidate> {
-        let code = segments.iter().map(|s| s.code.as_str()).collect::<Vec<_>>().join(" ");
+        let code = segments
+            .iter()
+            .map(|s| s.code.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
         let store = self.store.lock();
         let user_cands = store.query(&code);
         user_cands
@@ -124,10 +155,7 @@ mod tests {
                 stem: None,
             },
         ];
-        Arc::new(CompiledIndex::build(
-            entries,
-            DeploymentGeneration::new(1),
-        ))
+        Arc::new(CompiledIndex::build(entries, DeploymentGeneration::new(1)))
     }
 
     #[test]

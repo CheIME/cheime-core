@@ -59,10 +59,7 @@ impl<P: InputPipeline> Session<P> {
 
     // ── Message dispatch ──────────────────────────────────────────────
 
-    pub fn handle(
-        &mut self,
-        message: FrontendMessage,
-    ) -> Result<Vec<EngineMessage>, SessionError> {
+    pub fn handle(&mut self, message: FrontendMessage) -> Result<Vec<EngineMessage>, SessionError> {
         self.validate_header(message.header(), &message)?;
         self.last_sequence = message.header().sequence;
 
@@ -80,7 +77,11 @@ impl<P: InputPipeline> Session<P> {
 
     // ── Header validation ─────────────────────────────────────────────
 
-    fn validate_header(&self, header: &MessageHeader, message: &FrontendMessage) -> Result<(), SessionError> {
+    fn validate_header(
+        &self,
+        header: &MessageHeader,
+        message: &FrontendMessage,
+    ) -> Result<(), SessionError> {
         if header.epoch != self.identity.epoch {
             return Err(SessionError::StaleEpoch {
                 received: header.epoch,
@@ -145,9 +146,7 @@ impl<P: InputPipeline> Session<P> {
         command: UiCommand,
     ) -> Result<Vec<EngineMessage>, SessionError> {
         match command {
-            UiCommand::SelectCandidate {
-                candidate_id, ..
-            } => {
+            UiCommand::SelectCandidate { candidate_id, .. } => {
                 // Find the candidate by ID in the full list
                 let text = self
                     .candidates
@@ -171,7 +170,8 @@ impl<P: InputPipeline> Session<P> {
                 }
                 let max = self.candidates.len().saturating_sub(1);
                 let new_idx = if delta < 0 {
-                    self.highlighted_idx.saturating_sub(delta.unsigned_abs() as usize)
+                    self.highlighted_idx
+                        .saturating_sub(delta.unsigned_abs() as usize)
                 } else {
                     (self.highlighted_idx + delta as usize).min(max)
                 };
@@ -251,7 +251,9 @@ impl<P: InputPipeline> Session<P> {
     }
     fn propose_commit_text(&mut self, text: &str) -> Result<Vec<EngineMessage>, SessionError> {
         let action = self.new_action(
-            PlatformActionKind::Commit { text: text.to_owned() },
+            PlatformActionKind::Commit {
+                text: text.to_owned(),
+            },
             PendingEffect::ClearComposition,
         );
         Ok(vec![
@@ -263,7 +265,6 @@ impl<P: InputPipeline> Session<P> {
         &mut self,
         result: cheime_model::PlatformActionResult,
     ) -> Result<Vec<EngineMessage>, SessionError> {
-
         let effect = self
             .pending
             .remove(&result.action_id)
@@ -463,8 +464,12 @@ mod tests {
     #[test]
     fn ui_select_candidate_commits_specific_text() {
         let mut session = Session::new(initial_header(), pipeline());
-        session.handle(key_message(1, 0, Key::Character('n'))).unwrap();
-        session.handle(key_message(2, 1, Key::Character('i'))).unwrap();
+        session
+            .handle(key_message(1, 0, Key::Character('n')))
+            .unwrap();
+        session
+            .handle(key_message(2, 1, Key::Character('i')))
+            .unwrap();
         // Now candidates: [你(id=1), 尼(id=2), 泥(id=3)]
         let output = session
             .handle(ui_message(
@@ -492,15 +497,15 @@ mod tests {
     #[test]
     fn ui_move_highlight_shifts_selection() {
         let mut session = Session::new(initial_header(), pipeline());
-        session.handle(key_message(1, 0, Key::Character('n'))).unwrap();
-        session.handle(key_message(2, 1, Key::Character('i'))).unwrap();
+        session
+            .handle(key_message(1, 0, Key::Character('n')))
+            .unwrap();
+        session
+            .handle(key_message(2, 1, Key::Character('i')))
+            .unwrap();
         // Highlight defaults to 0 (你). Move down by 1 → 尼.
         let output = session
-            .handle(ui_message(
-                3,
-                2,
-                UiCommand::MoveHighlight(1),
-            ))
+            .handle(ui_message(3, 2, UiCommand::MoveHighlight(1)))
             .unwrap();
         let snapshot = match &output[0] {
             EngineMessage::CandidateSnapshot { snapshot, .. } => snapshot,
@@ -513,8 +518,12 @@ mod tests {
     fn page_up_down_navigates_pages() {
         let mut session = Session::new(initial_header(), pipeline());
         // Query gives 3 candidates, page_size=9 → 1 page
-        session.handle(key_message(1, 0, Key::Character('n'))).unwrap();
-        session.handle(key_message(2, 1, Key::Character('i'))).unwrap();
+        session
+            .handle(key_message(1, 0, Key::Character('n')))
+            .unwrap();
+        session
+            .handle(key_message(2, 1, Key::Character('i')))
+            .unwrap();
 
         // Next page should clamp (only 1 page)
         let output = session
@@ -530,8 +539,12 @@ mod tests {
     #[test]
     fn propose_commit_commits_highlighted_not_first() {
         let mut session = Session::new(initial_header(), pipeline());
-        session.handle(key_message(1, 0, Key::Character('n'))).unwrap();
-        session.handle(key_message(2, 1, Key::Character('i'))).unwrap();
+        session
+            .handle(key_message(1, 0, Key::Character('n')))
+            .unwrap();
+        session
+            .handle(key_message(2, 1, Key::Character('i')))
+            .unwrap();
         // Move highlight to candidate #2 (尼)
         session
             .handle(ui_message(3, 2, UiCommand::MoveHighlight(1)))
@@ -576,8 +589,12 @@ mod tests {
         assert_eq!(snapshot.page, 0);
 
         // Now type something to get candidates
-        session.handle(key_message(3, 0, Key::Character('n'))).unwrap();
-        session.handle(key_message(4, 1, Key::Character('i'))).unwrap();
+        session
+            .handle(key_message(3, 0, Key::Character('n')))
+            .unwrap();
+        session
+            .handle(key_message(4, 1, Key::Character('i')))
+            .unwrap();
         // 3 candidates, page_size=9 → 1 page. Page down at last page should clamp.
         let output = session
             .handle(ui_message(5, 2, UiCommand::NextPage))
@@ -592,10 +609,7 @@ mod tests {
     #[test]
     fn commit_with_empty_candidates() {
         // Create a session with a minimal pipeline that has no dictionary
-        let mut session = Session::new(
-            initial_header(),
-            BuiltinPipeline::new([]),
-        );
+        let mut session = Session::new(initial_header(), BuiltinPipeline::new([]));
         // With no candidates, proposing a commit should fail
         let result = session.handle(key_message(1, 0, Key::Enter));
         assert!(matches!(result, Err(SessionError::NoCandidate)));
@@ -604,8 +618,12 @@ mod tests {
     #[test]
     fn highlight_wraps_on_page_navigation() {
         let mut session = Session::new(initial_header(), pipeline());
-        session.handle(key_message(1, 0, Key::Character('n'))).unwrap();
-        session.handle(key_message(2, 1, Key::Character('i'))).unwrap();
+        session
+            .handle(key_message(1, 0, Key::Character('n')))
+            .unwrap();
+        session
+            .handle(key_message(2, 1, Key::Character('i')))
+            .unwrap();
         // 3 candidates, page_size=9 → all on page 0
         // Move highlight to candidate #2 (index 2)
         session
@@ -627,8 +645,12 @@ mod tests {
     #[test]
     fn dismiss_clears_composition_and_candidates() {
         let mut session = Session::new(initial_header(), pipeline());
-        session.handle(key_message(1, 0, Key::Character('n'))).unwrap();
-        session.handle(key_message(2, 1, Key::Character('i'))).unwrap();
+        session
+            .handle(key_message(1, 0, Key::Character('n')))
+            .unwrap();
+        session
+            .handle(key_message(2, 1, Key::Character('i')))
+            .unwrap();
         assert_eq!(session.composition(), "ni");
         assert!(!session.candidates.is_empty());
 
@@ -666,8 +688,12 @@ mod tests {
     #[test]
     fn rejected_commit_preserves_composition() {
         let mut session = Session::new(initial_header(), pipeline());
-        session.handle(key_message(1, 0, Key::Character('n'))).unwrap();
-        session.handle(key_message(2, 1, Key::Character('i'))).unwrap();
+        session
+            .handle(key_message(1, 0, Key::Character('n')))
+            .unwrap();
+        session
+            .handle(key_message(2, 1, Key::Character('i')))
+            .unwrap();
 
         // Select candidate #1 (你) — this creates a Commit action
         let output = session
@@ -718,8 +744,12 @@ mod tests {
             BuiltinPipeline::new(entries)
         };
         let mut session = Session::new(initial_header(), big);
-        session.handle(key_message(1, 0, Key::Character('n'))).unwrap();
-        session.handle(key_message(2, 1, Key::Character('i'))).unwrap();
+        session
+            .handle(key_message(1, 0, Key::Character('n')))
+            .unwrap();
+        session
+            .handle(key_message(2, 1, Key::Character('i')))
+            .unwrap();
 
         // 15 candidates, page_size=9 → page 0 has 9
         let output = session
@@ -758,8 +788,12 @@ mod tests {
     #[test]
     fn backspace_and_retype_produces_same_candidates() {
         let mut session = Session::new(initial_header(), pipeline());
-        session.handle(key_message(1, 0, Key::Character('n'))).unwrap();
-        let output = session.handle(key_message(2, 1, Key::Character('i'))).unwrap();
+        session
+            .handle(key_message(1, 0, Key::Character('n')))
+            .unwrap();
+        let output = session
+            .handle(key_message(2, 1, Key::Character('i')))
+            .unwrap();
 
         // Record candidates from first "ni" query
         let first_snapshot = match &output[1] {
@@ -772,7 +806,9 @@ mod tests {
         assert_eq!(session.composition(), "n");
 
         // Retype "i" → should produce same candidates
-        let output = session.handle(key_message(4, 3, Key::Character('i'))).unwrap();
+        let output = session
+            .handle(key_message(4, 3, Key::Character('i')))
+            .unwrap();
         let second_snapshot = match &output[1] {
             EngineMessage::CandidateSnapshot { snapshot, .. } => snapshot.clone(),
             other => panic!("expected snapshot, got {other:?}"),
@@ -783,8 +819,12 @@ mod tests {
     #[test]
     fn move_highlight_past_candidate_count_clamps() {
         let mut session = Session::new(initial_header(), pipeline());
-        session.handle(key_message(1, 0, Key::Character('n'))).unwrap();
-        session.handle(key_message(2, 1, Key::Character('i'))).unwrap();
+        session
+            .handle(key_message(1, 0, Key::Character('n')))
+            .unwrap();
+        session
+            .handle(key_message(2, 1, Key::Character('i')))
+            .unwrap();
         // 3 candidates: indices 0=你, 1=尼, 2=泥
 
         // MoveHighlight(5) with only 3 candidates → clamps to last (index 2)

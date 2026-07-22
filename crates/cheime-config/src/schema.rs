@@ -289,7 +289,9 @@ pub struct EmojiTranslatorConfig {
     pub emoji_data: String,
 }
 
-fn default_emoji_data() -> String { String::from("data/emoji.txt") }
+fn default_emoji_data() -> String {
+    String::from("data/emoji.txt")
+}
 
 // ── Filter configs ──────────────────────────────────────────────────
 
@@ -634,7 +636,6 @@ engine:
         assert!(result.is_err());
     }
 
-
     #[test]
     fn parse_fuzzy_pinyin_enabled() {
         let yaml = r#"
@@ -755,5 +756,4 @@ engine:
         let result: Result<SchemaConfig, _> = serde_yaml::from_str(yaml);
         assert!(result.is_err());
     }
-
 }

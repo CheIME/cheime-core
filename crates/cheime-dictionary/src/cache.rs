@@ -24,9 +24,9 @@
 //! 4. If missing → parse .dict.yaml, compile, serialize to cache
 //! 5. Merge all fragments into final CompiledIndex
 
-use crate::body::{parse_body, DictEntry};
-use crate::index::{CompiledIndex, MemoryIndex};
 use crate::DictColumn;
+use crate::body::{DictEntry, parse_body};
+use crate::index::{CompiledIndex, MemoryIndex};
 use cheime_model::DeploymentGeneration;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -47,7 +47,6 @@ struct CacheFragment {
     /// Compiled entries: code → list of (text, weight).
     entries: BTreeMap<String, Vec<(String, Option<i64>)>>,
 }
-
 
 // ── DictCache ──────────────────────────────────────────────────────
 
@@ -111,12 +110,10 @@ impl DictCache {
         hasher.update(combined_hash_state.as_bytes());
         let source_hash = format!("{:x}", hasher.finalize());
 
-        Ok(MemoryIndex::from_fragment(
-            generation,
-            source_hash,
-            total_entries,
-            all_entries,
-        ).into_compiled())
+        Ok(
+            MemoryIndex::from_fragment(generation, source_hash, total_entries, all_entries)
+                .into_compiled(),
+        )
     }
 
     /// Load a single file's fragment from cache, or build + cache it.
@@ -181,10 +178,7 @@ impl DictCache {
         let total = entries.len();
         let mut grouped: BTreeMap<String, Vec<(String, Option<i64>)>> = BTreeMap::new();
         for e in entries {
-            grouped
-                .entry(e.code)
-                .or_default()
-                .push((e.text, e.weight));
+            grouped.entry(e.code).or_default().push((e.text, e.weight));
         }
         for group in grouped.values_mut() {
             group.sort_by(|a, b| {
@@ -193,7 +187,11 @@ impl DictCache {
                     .then_with(|| a.0.cmp(&b.0))
             });
         }
-        CacheFragment { total_entries: total, source_hash: hash.to_owned(), entries: grouped }
+        CacheFragment {
+            total_entries: total,
+            source_hash: hash.to_owned(),
+            entries: grouped,
+        }
     }
 
     // ── Path helpers ────────────────────────────────────────────────
@@ -204,13 +202,12 @@ impl DictCache {
     }
 
     fn load_fragment(&self, path: &Path) -> Result<CacheFragment, CacheError> {
-        let mut file = fs::File::open(path)
-            .map_err(|e| CacheError::Io(format!("open cache: {e}")))?;
+        let mut file =
+            fs::File::open(path).map_err(|e| CacheError::Io(format!("open cache: {e}")))?;
         let mut buf = Vec::new();
         file.read_to_end(&mut buf)
             .map_err(|e| CacheError::Io(format!("read cache: {e}")))?;
-        rmp_serde::from_slice(&buf)
-            .map_err(|e| CacheError::Deserialize(e.to_string()))
+        rmp_serde::from_slice(&buf).map_err(|e| CacheError::Deserialize(e.to_string()))
     }
 
     fn save_fragment(&self, path: &Path, fragment: &CacheFragment) -> Result<(), CacheError> {
@@ -218,10 +215,8 @@ impl DictCache {
             fs::create_dir_all(parent)
                 .map_err(|e| CacheError::Io(format!("create cache dir: {e}")))?;
         }
-        let buf = rmp_serde::to_vec(fragment)
-            .map_err(|e| CacheError::Serialize(e.to_string()))?;
-        fs::write(path, &buf)
-            .map_err(|e| CacheError::Io(format!("write cache: {e}")))?;
+        let buf = rmp_serde::to_vec(fragment).map_err(|e| CacheError::Serialize(e.to_string()))?;
+        fs::write(path, &buf).map_err(|e| CacheError::Io(format!("write cache: {e}")))?;
         Ok(())
     }
 
@@ -238,11 +233,11 @@ impl DictCache {
     /// List cached hashes for a dict (for diagnostics).
     pub fn cached_hashes(&self, dict_name: &str) -> Result<Vec<String>, CacheError> {
         let dir = self.cache_dir.join("dicts").join(dict_name);
-        if !dir.exists() { return Ok(vec![]); }
+        if !dir.exists() {
+            return Ok(vec![]);
+        }
         let mut hashes = Vec::new();
-        for entry in fs::read_dir(&dir)
-            .map_err(|e| CacheError::Io(format!("list cache: {e}")))?
-        {
+        for entry in fs::read_dir(&dir).map_err(|e| CacheError::Io(format!("list cache: {e}")))? {
             let entry = entry.map_err(|e| CacheError::Io(format!("read dir: {e}")))?;
             if let Some(name) = entry.file_name().to_str() {
                 if name.ends_with(".bin") {
@@ -312,11 +307,25 @@ mod tests {
         let file = sample_file(&tmp, "test.dict.yaml", sample_dict());
 
         // First build — cache miss
-        let idx1 = cache.load_or_build(&[file.clone()], "test", &columns(), DeploymentGeneration::new(1)).unwrap();
+        let idx1 = cache
+            .load_or_build(
+                &[file.clone()],
+                "test",
+                &columns(),
+                DeploymentGeneration::new(1),
+            )
+            .unwrap();
         assert_eq!(idx1.total_entries(), 4);
 
         // Second build — cache hit, same content
-        let idx2 = cache.load_or_build(&[file.clone()], "test", &columns(), DeploymentGeneration::new(1)).unwrap();
+        let idx2 = cache
+            .load_or_build(
+                &[file.clone()],
+                "test",
+                &columns(),
+                DeploymentGeneration::new(1),
+            )
+            .unwrap();
         assert_eq!(idx2.source_hash(), idx1.source_hash());
         assert_eq!(idx2.total_entries(), 4);
     }
@@ -327,13 +336,31 @@ mod tests {
         let cache = DictCache::new(tmp.path().join("cache"));
         let file = sample_file(&tmp, "test.dict.yaml", sample_dict());
 
-        let idx1 = cache.load_or_build(&[file.clone()], "test", &columns(), DeploymentGeneration::new(1)).unwrap();
+        let idx1 = cache
+            .load_or_build(
+                &[file.clone()],
+                "test",
+                &columns(),
+                DeploymentGeneration::new(1),
+            )
+            .unwrap();
         let hash1 = idx1.source_hash().to_string();
 
         // Change file content
         fs::write(&file, "新\txin\t500\n").unwrap();
-        let idx2 = cache.load_or_build(&[file.clone()], "test", &columns(), DeploymentGeneration::new(1)).unwrap();
-        assert_ne!(idx2.source_hash(), hash1, "hash should change when file changes");
+        let idx2 = cache
+            .load_or_build(
+                &[file.clone()],
+                "test",
+                &columns(),
+                DeploymentGeneration::new(1),
+            )
+            .unwrap();
+        assert_ne!(
+            idx2.source_hash(),
+            hash1,
+            "hash should change when file changes"
+        );
         assert_eq!(idx2.total_entries(), 1);
     }
 
@@ -345,12 +372,14 @@ mod tests {
         let file_a = sample_file(&tmp, "a.dict.yaml", "好\thao\t100\n你\tni\t200\n");
         let file_b = sample_file(&tmp, "b.dict.yaml", "你好\tni hao\t300\n拟好\tni hao\t50\n");
 
-        let idx = cache.load_or_build(
-            &[file_a.clone(), file_b.clone()],
-            "split",
-            &columns(),
-            DeploymentGeneration::new(1),
-        ).unwrap();
+        let idx = cache
+            .load_or_build(
+                &[file_a.clone(), file_b.clone()],
+                "split",
+                &columns(),
+                DeploymentGeneration::new(1),
+            )
+            .unwrap();
 
         assert_eq!(idx.total_entries(), 4);
         // Both files' entries should be merged
@@ -368,17 +397,27 @@ mod tests {
         let file_b = sample_file(&tmp, "b.dict.yaml", "你\tni\t200\n");
 
         // First full build
-        let idx1 = cache.load_or_build(
-            &[file_a.clone(), file_b.clone()], "partial", &columns(), DeploymentGeneration::new(1),
-        ).unwrap();
+        let idx1 = cache
+            .load_or_build(
+                &[file_a.clone(), file_b.clone()],
+                "partial",
+                &columns(),
+                DeploymentGeneration::new(1),
+            )
+            .unwrap();
         assert_eq!(idx1.total_entries(), 2);
 
         // Change only file_b
         fs::write(&file_b, "你\tni\t200\n呢\tne\t150\n").unwrap();
 
-        let idx2 = cache.load_or_build(
-            &[file_a.clone(), file_b.clone()], "partial", &columns(), DeploymentGeneration::new(1),
-        ).unwrap();
+        let idx2 = cache
+            .load_or_build(
+                &[file_a.clone(), file_b.clone()],
+                "partial",
+                &columns(),
+                DeploymentGeneration::new(1),
+            )
+            .unwrap();
         assert_eq!(idx2.total_entries(), 3);
     }
 
@@ -388,7 +427,14 @@ mod tests {
         let cache = DictCache::new(tmp.path().join("cache"));
         let file = sample_file(&tmp, "test.dict.yaml", sample_dict());
 
-        cache.load_or_build(&[file.clone()], "test", &columns(), DeploymentGeneration::new(1)).unwrap();
+        cache
+            .load_or_build(
+                &[file.clone()],
+                "test",
+                &columns(),
+                DeploymentGeneration::new(1),
+            )
+            .unwrap();
         assert!(!cache.cached_hashes("test").unwrap().is_empty());
 
         cache.invalidate("test").unwrap();
@@ -401,7 +447,9 @@ mod tests {
         let cache = DictCache::new(tmp.path().join("cache"));
         let file = sample_file(&tmp, "test.dict.yaml", sample_dict());
 
-        let idx = cache.load_or_build(&[file], "test", &columns(), DeploymentGeneration::new(1)).unwrap();
+        let idx = cache
+            .load_or_build(&[file], "test", &columns(), DeploymentGeneration::new(1))
+            .unwrap();
 
         // Query by code
         let hao = idx.query("hao");

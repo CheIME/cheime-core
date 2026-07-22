@@ -52,13 +52,21 @@ pub struct SimplifierFilter {
 impl SimplifierFilter {
     /// Load from a TSV file: each line is `source_char<TAB>target_text`.
     /// Lines starting with `#` are comments. Blank lines are skipped.
-    pub fn from_file(path: &Path, direction: Conversion, annotate: bool) -> Result<Self, SimplifierError> {
+    pub fn from_file(
+        path: &Path,
+        direction: Conversion,
+        annotate: bool,
+    ) -> Result<Self, SimplifierError> {
         let content = fs::read_to_string(path).map_err(|e| SimplifierError::Io(e.to_string()))?;
         Self::parse(&content, direction, annotate)
     }
 
     /// Load from an in-memory TSV string (for embedded configs, test fixtures, etc.).
-    pub fn parse(source: &str, direction: Conversion, annotate: bool) -> Result<Self, SimplifierError> {
+    pub fn parse(
+        source: &str,
+        direction: Conversion,
+        annotate: bool,
+    ) -> Result<Self, SimplifierError> {
         let mut map = HashMap::new();
         for (idx, line) in source.lines().enumerate() {
             let trimmed = line.trim();
@@ -68,23 +76,34 @@ impl SimplifierFilter {
             let parts: Vec<&str> = trimmed.splitn(2, '\t').collect();
             if parts.len() < 2 {
                 return Err(SimplifierError::Parse(
-                    "expected <char><TAB><text>".into(), idx + 1));
+                    "expected <char><TAB><text>".into(),
+                    idx + 1,
+                ));
             }
-            let source_char = parts[0].chars().next().ok_or_else(|| {
-                SimplifierError::Parse("empty source char".into(), idx + 1)
-            })?;
+            let source_char = parts[0]
+                .chars()
+                .next()
+                .ok_or_else(|| SimplifierError::Parse("empty source char".into(), idx + 1))?;
             let target = parts[1].to_owned();
             map.insert(source_char, target);
         }
         if map.is_empty() {
             return Err(SimplifierError::Empty);
         }
-        Ok(Self { direction, char_map: map, annotate })
+        Ok(Self {
+            direction,
+            char_map: map,
+            annotate,
+        })
     }
 
     /// Build from a pre-populated HashMap (for programmatic construction / tests).
     pub fn from_table(table: HashMap<char, String>, direction: Conversion, annotate: bool) -> Self {
-        Self { direction, char_map: table, annotate }
+        Self {
+            direction,
+            char_map: table,
+            annotate,
+        }
     }
 
     fn convert(&self, text: &str) -> String {
@@ -172,7 +191,11 @@ mod tests {
         let cands = vec![Candidate::text(CandidateId::new(1), "爱国", "dict:abc")];
         let result = f.filter(cands);
         assert_eq!(result[0].text, "愛國");
-        assert!(result[0].source.contains("simplified"), "source: {}", result[0].source);
+        assert!(
+            result[0].source.contains("simplified"),
+            "source: {}",
+            result[0].source
+        );
     }
 
     #[test]

@@ -33,8 +33,10 @@ impl UserProfile {
         }
         let content = std::fs::read_to_string(path)
             .map_err(|e| crate::error::ConfigError::Io(e.to_string()))?;
-        serde_yaml::from_str(&content)
-            .map_err(|e| crate::error::ConfigError::Parse { path: path.to_string_lossy().to_string(), message: e.to_string() })
+        serde_yaml::from_str(&content).map_err(|e| crate::error::ConfigError::Parse {
+            path: path.to_string_lossy().to_string(),
+            message: e.to_string(),
+        })
     }
 
     /// Save to a YAML file (used by sync tools and settings UI, NOT by the engine).
@@ -43,10 +45,11 @@ impl UserProfile {
             std::fs::create_dir_all(parent)
                 .map_err(|e| crate::error::ConfigError::Io(e.to_string()))?;
         }
-        let yaml = serde_yaml::to_string(self)
-            .map_err(|e| crate::error::ConfigError::Parse { path: path.to_string_lossy().to_string(), message: e.to_string() })?;
-        std::fs::write(path, yaml)
-            .map_err(|e| crate::error::ConfigError::Io(e.to_string()))?;
+        let yaml = serde_yaml::to_string(self).map_err(|e| crate::error::ConfigError::Parse {
+            path: path.to_string_lossy().to_string(),
+            message: e.to_string(),
+        })?;
+        std::fs::write(path, yaml).map_err(|e| crate::error::ConfigError::Io(e.to_string()))?;
         Ok(())
     }
 }
@@ -70,7 +73,10 @@ mod tests {
 
         let p = UserProfile {
             schema: Some("quanpin".into()),
-            patch: Some(serde_yaml::from_str("schema_version: 1\nmenu:\n  page_size: 5\nengine: {}\n").unwrap()),
+            patch: Some(
+                serde_yaml::from_str("schema_version: 1\nmenu:\n  page_size: 5\nengine: {}\n")
+                    .unwrap(),
+            ),
         };
         p.save(&path).unwrap();
 

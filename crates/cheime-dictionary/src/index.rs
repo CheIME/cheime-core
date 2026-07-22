@@ -35,18 +35,30 @@ impl MemoryIndex {
             }
             hash_state.push('\n');
 
-            grouped.entry(entry.code.clone()).or_default().push((entry.text.clone(), entry.weight));
+            grouped
+                .entry(entry.code.clone())
+                .or_default()
+                .push((entry.text.clone(), entry.weight));
         }
 
         for group in grouped.values_mut() {
-            group.sort_by(|a, b| b.1.unwrap_or(0).cmp(&a.1.unwrap_or(0)).then_with(|| a.0.cmp(&b.0)));
+            group.sort_by(|a, b| {
+                b.1.unwrap_or(0)
+                    .cmp(&a.1.unwrap_or(0))
+                    .then_with(|| a.0.cmp(&b.0))
+            });
         }
 
         let mut hasher = Sha256::new();
         hasher.update(hash_state.as_bytes());
         let source_hash = format!("{:x}", hasher.finalize());
 
-        Self { generation, source_hash, total_entries: entries.len(), entries: grouped }
+        Self {
+            generation,
+            source_hash,
+            total_entries: entries.len(),
+            entries: grouped,
+        }
     }
 
     /// Construct from a cache fragment (avoids re-sorting).
@@ -56,19 +68,30 @@ impl MemoryIndex {
         total_entries: usize,
         entries: BTreeMap<String, Vec<(String, Option<i64>)>>,
     ) -> Self {
-        Self { generation, source_hash, total_entries, entries }
+        Self {
+            generation,
+            source_hash,
+            total_entries,
+            entries,
+        }
     }
 
     /// Exact code lookup (single key).
     pub fn query(&self, code: &str) -> Vec<Candidate> {
         let hash8 = self.source_hash.chars().take(8).collect::<String>();
-        self.entries.get(code).into_iter().flatten().enumerate().map(|(idx, (text, _))| Candidate {
-            id: CandidateId::new(idx as u64 + 1),
-            text: text.clone(),
-            annotation: Some(code.to_owned()),
-            source: format!("dict:{hash8}"),
-            is_emoji: false,
-        }).collect()
+        self.entries
+            .get(code)
+            .into_iter()
+            .flatten()
+            .enumerate()
+            .map(|(idx, (text, _))| Candidate {
+                id: CandidateId::new(idx as u64 + 1),
+                text: text.clone(),
+                annotation: Some(code.to_owned()),
+                source: format!("dict:{hash8}"),
+                is_emoji: false,
+            })
+            .collect()
     }
 
     /// Prefix search: all entries whose code starts with `prefix`.
@@ -98,13 +121,17 @@ impl MemoryIndex {
         results.truncate(limit);
 
         let hash8 = self.source_hash.chars().take(8).collect::<String>();
-        results.into_iter().enumerate().map(|(idx, (_w, text, code))| Candidate {
-            id: CandidateId::new(idx as u64 + 1),
-            text,
-            annotation: (!code.is_empty()).then_some(code),
-            source: format!("dict:{hash8}"),
-            is_emoji: false,
-        }).collect()
+        results
+            .into_iter()
+            .enumerate()
+            .map(|(idx, (_w, text, code))| Candidate {
+                id: CandidateId::new(idx as u64 + 1),
+                text,
+                annotation: (!code.is_empty()).then_some(code),
+                source: format!("dict:{hash8}"),
+                is_emoji: false,
+            })
+            .collect()
     }
 }
 
@@ -145,7 +172,13 @@ impl CompiledIndex {
         source_hash: String,
         generation: DeploymentGeneration,
     ) -> Result<Self, crate::tiered::TidexBuildError> {
-        let tiered = TieredIndex::new(code_entries, tidx_path, hot_entries_per_code, source_hash, generation)?;
+        let tiered = TieredIndex::new(
+            code_entries,
+            tidx_path,
+            hot_entries_per_code,
+            source_hash,
+            generation,
+        )?;
         Ok(CompiledIndex::Tiered(Arc::new(tiered)))
     }
 
@@ -206,7 +239,12 @@ mod tests {
     use super::*;
 
     fn entry(text: &str, code: &str, weight: i64) -> DictEntry {
-        DictEntry { text: text.into(), code: code.into(), weight: Some(weight), stem: None }
+        DictEntry {
+            text: text.into(),
+            code: code.into(),
+            weight: Some(weight),
+            stem: None,
+        }
     }
 
     #[test]

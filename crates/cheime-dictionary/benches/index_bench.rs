@@ -15,9 +15,9 @@
 //! - **dict/typing_***: multi-keystroke typing simulation (real-world pattern)
 //! - **seg/***: pinyin syllable segmentation (prefix-tree based)
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use cheime_dictionary::{CompiledIndex, DictColumn, DictEntry, parse_body};
 use cheime_model::DeploymentGeneration;
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use std::sync::OnceLock;
 
 // ── Dict body extraction (handles CRLF/LF) ───────────────────────────
@@ -55,7 +55,9 @@ fn real_index() -> &'static (CompiledIndex, Vec<String>) {
             .lines()
             .filter(|l| {
                 let t = l.trim();
-                if t.is_empty() || t.starts_with('#') { return false; }
+                if t.is_empty() || t.starts_with('#') {
+                    return false;
+                }
                 t.split('\t').count() == 2
             })
             .collect::<Vec<_>>()
@@ -139,7 +141,9 @@ fn bench_build_real_dict(c: &mut Criterion) {
         .lines()
         .filter(|l| {
             let t = l.trim();
-            if t.is_empty() || t.starts_with('#') { return false; }
+            if t.is_empty() || t.starts_with('#') {
+                return false;
+            }
             t.split('\t').count() == 2
         })
         .collect::<Vec<_>>()
@@ -185,27 +189,21 @@ fn bench_build_synthetic_100k(c: &mut Criterion) {
 fn bench_query_short_code(c: &mut Criterion) {
     let (index, _codes) = real_index();
     c.bench_function("dict/query_short_code", |b| {
-        b.iter(|| {
-            black_box(index.query(black_box("zhong")))
-        })
+        b.iter(|| black_box(index.query(black_box("zhong"))))
     });
 }
 
 fn bench_query_long_code(c: &mut Criterion) {
     let (index, _codes) = real_index();
     c.bench_function("dict/query_long_code", |b| {
-        b.iter(|| {
-            black_box(index.query(black_box("zhuang")))
-        })
+        b.iter(|| black_box(index.query(black_box("zhuang"))))
     });
 }
 
 fn bench_query_miss(c: &mut Criterion) {
     let (index, _codes) = real_index();
     c.bench_function("dict/query_miss", |b| {
-        b.iter(|| {
-            black_box(index.query(black_box("zzz")))
-        })
+        b.iter(|| black_box(index.query(black_box("zzz"))))
     });
 }
 
@@ -243,27 +241,21 @@ fn bench_build_rime_ice_539k(c: &mut Criterion) {
 fn bench_query_rime_ice_short(c: &mut Criterion) {
     let (index, _codes) = rime_ice_index();
     c.bench_function("dict/query_rime_ice_short", |b| {
-        b.iter(|| {
-            black_box(index.query(black_box("ni hao")))
-        })
+        b.iter(|| black_box(index.query(black_box("ni hao"))))
     });
 }
 
 fn bench_query_rime_ice_long(c: &mut Criterion) {
     let (index, _codes) = rime_ice_index();
     c.bench_function("dict/query_rime_ice_long", |b| {
-        b.iter(|| {
-            black_box(index.query(black_box("zhong hua ren min gong he guo")))
-        })
+        b.iter(|| black_box(index.query(black_box("zhong hua ren min gong he guo"))))
     });
 }
 
 fn bench_query_rime_ice_miss(c: &mut Criterion) {
     let (index, _codes) = rime_ice_index();
     c.bench_function("dict/query_rime_ice_miss", |b| {
-        b.iter(|| {
-            black_box(index.query(black_box("zzz zzz")))
-        })
+        b.iter(|| black_box(index.query(black_box("zzz zzz"))))
     });
 }
 
@@ -284,7 +276,9 @@ fn bench_query_rime_ice_all_codes(c: &mut Criterion) {
 /// composition prefix. This is the real-world user-facing latency path.
 fn bench_typing_zhongguo(c: &mut Criterion) {
     let (index, _codes) = real_index();
-    let prefixes = ["z", "zh", "zho", "zhon", "zhong", "zhongg", "zhonggu", "zhongguo"];
+    let prefixes = [
+        "z", "zh", "zho", "zhon", "zhong", "zhongg", "zhonggu", "zhongguo",
+    ];
     c.bench_function("dict/typing_zhongguo_8keys", |b| {
         b.iter(|| {
             for prefix in &prefixes {
@@ -311,57 +305,43 @@ fn bench_typing_zhonghuarenmin(c: &mut Criterion) {
 
 /// All valid Hanyu Pinyin syllables (without tones).
 const PINYIN_SYLLABLES: &[&str] = &[
-    "a", "ai", "an", "ang", "ao",
-    "ba", "bai", "ban", "bang", "bao", "bei", "ben", "beng", "bi", "bian", "biao", "bie",
-    "bin", "bing", "bo", "bu",
-    "ca", "cai", "can", "cang", "cao", "ce", "cen", "ceng", "cha", "chai", "chan", "chang",
-    "chao", "che", "chen", "cheng", "chi", "chong", "chou", "chu", "chua", "chuai", "chuan",
-    "chuang", "chui", "chun", "chuo", "ci", "cong", "cou", "cu", "cuan", "cui", "cun", "cuo",
-    "da", "dai", "dan", "dang", "dao", "de", "dei", "den", "deng", "di", "dian", "diao",
-    "die", "ding", "diu", "dong", "dou", "du", "duan", "dui", "dun", "duo",
-    "e", "ei", "en", "eng", "er",
-    "fa", "fan", "fang", "fei", "fen", "feng", "fo", "fou", "fu",
-    "ga", "gai", "gan", "gang", "gao", "ge", "gei", "gen", "geng", "gong", "gou", "gu",
-    "gua", "guai", "guan", "guang", "gui", "gun", "guo",
-    "ha", "hai", "han", "hang", "hao", "he", "hei", "hen", "heng", "hong", "hou", "hu",
-    "hua", "huai", "huan", "huang", "hui", "hun", "huo",
-    "ji", "jia", "jian", "jiang", "jiao", "jie", "jin", "jing", "jiong", "jiu", "ju",
-    "juan", "jue", "jun",
-    "ka", "kai", "kan", "kang", "kao", "ke", "ken", "keng", "kong", "kou", "ku", "kua",
-    "kuai", "kuan", "kuang", "kui", "kun", "kuo",
-    "la", "lai", "lan", "lang", "lao", "le", "lei", "leng", "li", "lia", "lian", "liang",
-    "liao", "lie", "lin", "ling", "liu", "long", "lou", "lu", "luan", "lun", "luo", "lv", "lve",
-    "ma", "mai", "man", "mang", "mao", "me", "mei", "men", "meng", "mi", "mian", "miao",
-    "mie", "min", "ming", "miu", "mo", "mou", "mu",
-    "na", "nai", "nan", "nang", "nao", "ne", "nei", "nen", "neng", "ni", "nian", "niang",
-    "niao", "nie", "nin", "ning", "niu", "nong", "nou", "nu", "nuan", "nuo", "nv", "nve",
-    "o", "ou",
-    "pa", "pai", "pan", "pang", "pao", "pei", "pen", "peng", "pi", "pian", "piao", "pie",
-    "pin", "ping", "po", "pou", "pu",
-    "qi", "qia", "qian", "qiang", "qiao", "qie", "qin", "qing", "qiong", "qiu", "qu",
-    "quan", "que", "qun",
-    "ran", "rang", "rao", "re", "ren", "reng", "ri", "rong", "rou", "ru", "ruan", "rui",
-    "run", "ruo",
-    "sa", "sai", "san", "sang", "sao", "se", "sen", "seng", "sha", "shai", "shan", "shang",
-    "shao", "she", "shei", "shen", "sheng", "shi", "shou", "shu", "shua", "shuai", "shuan",
-    "shuang", "shui", "shun", "shuo", "si", "song", "sou", "su", "suan", "sui", "sun", "suo",
-    "ta", "tai", "tan", "tang", "tao", "te", "tei", "teng", "ti", "tian", "tiao", "tie",
-    "ting", "tong", "tou", "tu", "tuan", "tui", "tun", "tuo",
-    "wa", "wai", "wan", "wang", "wei", "wen", "weng", "wo", "wu",
-    "xi", "xia", "xian", "xiang", "xiao", "xie", "xin", "xing", "xiong", "xiu", "xu",
-    "xuan", "xue", "xun",
-    "ya", "yan", "yang", "yao", "ye", "yi", "yin", "ying", "yo", "yong", "you", "yu",
-    "yuan", "yue", "yun",
-    "za", "zai", "zan", "zang", "zao", "ze", "zei", "zen", "zeng", "zha", "zhai", "zhan",
-    "zhang", "zhao", "zhe", "zhei", "zhen", "zheng", "zhi", "zhong", "zhou", "zhu", "zhua",
-    "zhuai", "zhuan", "zhuang", "zhui", "zhun", "zhuo", "zi", "zong", "zou", "zu", "zuan",
-    "zui", "zun", "zuo",
+    "a", "ai", "an", "ang", "ao", "ba", "bai", "ban", "bang", "bao", "bei", "ben", "beng", "bi",
+    "bian", "biao", "bie", "bin", "bing", "bo", "bu", "ca", "cai", "can", "cang", "cao", "ce",
+    "cen", "ceng", "cha", "chai", "chan", "chang", "chao", "che", "chen", "cheng", "chi", "chong",
+    "chou", "chu", "chua", "chuai", "chuan", "chuang", "chui", "chun", "chuo", "ci", "cong", "cou",
+    "cu", "cuan", "cui", "cun", "cuo", "da", "dai", "dan", "dang", "dao", "de", "dei", "den",
+    "deng", "di", "dian", "diao", "die", "ding", "diu", "dong", "dou", "du", "duan", "dui", "dun",
+    "duo", "e", "ei", "en", "eng", "er", "fa", "fan", "fang", "fei", "fen", "feng", "fo", "fou",
+    "fu", "ga", "gai", "gan", "gang", "gao", "ge", "gei", "gen", "geng", "gong", "gou", "gu",
+    "gua", "guai", "guan", "guang", "gui", "gun", "guo", "ha", "hai", "han", "hang", "hao", "he",
+    "hei", "hen", "heng", "hong", "hou", "hu", "hua", "huai", "huan", "huang", "hui", "hun", "huo",
+    "ji", "jia", "jian", "jiang", "jiao", "jie", "jin", "jing", "jiong", "jiu", "ju", "juan",
+    "jue", "jun", "ka", "kai", "kan", "kang", "kao", "ke", "ken", "keng", "kong", "kou", "ku",
+    "kua", "kuai", "kuan", "kuang", "kui", "kun", "kuo", "la", "lai", "lan", "lang", "lao", "le",
+    "lei", "leng", "li", "lia", "lian", "liang", "liao", "lie", "lin", "ling", "liu", "long",
+    "lou", "lu", "luan", "lun", "luo", "lv", "lve", "ma", "mai", "man", "mang", "mao", "me", "mei",
+    "men", "meng", "mi", "mian", "miao", "mie", "min", "ming", "miu", "mo", "mou", "mu", "na",
+    "nai", "nan", "nang", "nao", "ne", "nei", "nen", "neng", "ni", "nian", "niang", "niao", "nie",
+    "nin", "ning", "niu", "nong", "nou", "nu", "nuan", "nuo", "nv", "nve", "o", "ou", "pa", "pai",
+    "pan", "pang", "pao", "pei", "pen", "peng", "pi", "pian", "piao", "pie", "pin", "ping", "po",
+    "pou", "pu", "qi", "qia", "qian", "qiang", "qiao", "qie", "qin", "qing", "qiong", "qiu", "qu",
+    "quan", "que", "qun", "ran", "rang", "rao", "re", "ren", "reng", "ri", "rong", "rou", "ru",
+    "ruan", "rui", "run", "ruo", "sa", "sai", "san", "sang", "sao", "se", "sen", "seng", "sha",
+    "shai", "shan", "shang", "shao", "she", "shei", "shen", "sheng", "shi", "shou", "shu", "shua",
+    "shuai", "shuan", "shuang", "shui", "shun", "shuo", "si", "song", "sou", "su", "suan", "sui",
+    "sun", "suo", "ta", "tai", "tan", "tang", "tao", "te", "tei", "teng", "ti", "tian", "tiao",
+    "tie", "ting", "tong", "tou", "tu", "tuan", "tui", "tun", "tuo", "wa", "wai", "wan", "wang",
+    "wei", "wen", "weng", "wo", "wu", "xi", "xia", "xian", "xiang", "xiao", "xie", "xin", "xing",
+    "xiong", "xiu", "xu", "xuan", "xue", "xun", "ya", "yan", "yang", "yao", "ye", "yi", "yin",
+    "ying", "yo", "yong", "you", "yu", "yuan", "yue", "yun", "za", "zai", "zan", "zang", "zao",
+    "ze", "zei", "zen", "zeng", "zha", "zhai", "zhan", "zhang", "zhao", "zhe", "zhei", "zhen",
+    "zheng", "zhi", "zhong", "zhou", "zhu", "zhua", "zhuai", "zhuan", "zhuang", "zhui", "zhun",
+    "zhuo", "zi", "zong", "zou", "zu", "zuan", "zui", "zun", "zuo",
 ];
 
 const SYNTHETIC_CODES: &[&str] = &[
-    "ni", "hao", "zhong", "guo", "bei", "jing", "shang", "hai",
-    "da", "xue", "dian", "nao", "shu", "ru", "fa", "pin", "yin",
-    "ci", "ku", "jian", "pan", "xian", "shi", "qi", "wo", "men",
+    "ni", "hao", "zhong", "guo", "bei", "jing", "shang", "hai", "da", "xue", "dian", "nao", "shu",
+    "ru", "fa", "pin", "yin", "ci", "ku", "jian", "pan", "xian", "shi", "qi", "wo", "men",
 ];
 
 static SYLLABLE_TRIE: OnceLock<SyllableTrie> = OnceLock::new();
@@ -528,4 +508,11 @@ criterion_group!(
     bench_query_rime_ice_all_codes,
 );
 
-criterion_main!(dict_build, dict_query, dict_typing, segmentation, combined, rime_ice);
+criterion_main!(
+    dict_build,
+    dict_query,
+    dict_typing,
+    segmentation,
+    combined,
+    rime_ice
+);

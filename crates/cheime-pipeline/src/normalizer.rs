@@ -63,23 +63,59 @@ impl FuzzyNormalizer {
         Self {
             rules: vec![
                 // Consonant fuzzy (prefix match)
-                FuzzyRule { from: "zh", to: "z" },
-                FuzzyRule { from: "z", to: "zh" },
-                FuzzyRule { from: "ch", to: "c" },
-                FuzzyRule { from: "c", to: "ch" },
-                FuzzyRule { from: "sh", to: "s" },
-                FuzzyRule { from: "s", to: "sh" },
+                FuzzyRule {
+                    from: "zh",
+                    to: "z",
+                },
+                FuzzyRule {
+                    from: "z",
+                    to: "zh",
+                },
+                FuzzyRule {
+                    from: "ch",
+                    to: "c",
+                },
+                FuzzyRule {
+                    from: "c",
+                    to: "ch",
+                },
+                FuzzyRule {
+                    from: "sh",
+                    to: "s",
+                },
+                FuzzyRule {
+                    from: "s",
+                    to: "sh",
+                },
                 FuzzyRule { from: "n", to: "l" },
                 FuzzyRule { from: "l", to: "n" },
                 FuzzyRule { from: "f", to: "h" },
                 FuzzyRule { from: "h", to: "f" },
                 // Vowel/final fuzzy (suffix match)
-                FuzzyRule { from: "ang", to: "an" },
-                FuzzyRule { from: "an", to: "ang" },
-                FuzzyRule { from: "eng", to: "en" },
-                FuzzyRule { from: "en", to: "eng" },
-                FuzzyRule { from: "ing", to: "in" },
-                FuzzyRule { from: "in", to: "ing" },
+                FuzzyRule {
+                    from: "ang",
+                    to: "an",
+                },
+                FuzzyRule {
+                    from: "an",
+                    to: "ang",
+                },
+                FuzzyRule {
+                    from: "eng",
+                    to: "en",
+                },
+                FuzzyRule {
+                    from: "en",
+                    to: "eng",
+                },
+                FuzzyRule {
+                    from: "ing",
+                    to: "in",
+                },
+                FuzzyRule {
+                    from: "in",
+                    to: "ing",
+                },
             ],
         }
     }
@@ -91,7 +127,10 @@ impl FuzzyNormalizer {
         }
         // Prefix match: "zhong" with zh→z → "zong"
         // Skip if code already starts with target (avoids z→zh on "zhong")
-        if code.starts_with(from) && code.len() > from.len() && !(code.starts_with(to) && to.starts_with(from)) {
+        if code.starts_with(from)
+            && code.len() > from.len()
+            && !(code.starts_with(to) && to.starts_with(from))
+        {
             return Some(format!("{to}{}", &code[from.len()..]));
         }
         // Suffix match: "bang" with ang→an → "ban"
@@ -104,7 +143,9 @@ impl FuzzyNormalizer {
 
     pub fn from_rules(rule_names: &[String]) -> Self {
         let all = Self::standard();
-        let rules: Vec<FuzzyRule> = all.rules.into_iter()
+        let rules: Vec<FuzzyRule> = all
+            .rules
+            .into_iter()
             .filter(|r| {
                 let key = format!("{}_{}", r.from, r.to);
                 rule_names.iter().any(|name| name == &key)
@@ -115,7 +156,9 @@ impl FuzzyNormalizer {
 }
 
 impl CodeNormalizer for FuzzyNormalizer {
-    fn name(&self) -> &str { "fuzzy" }
+    fn name(&self) -> &str {
+        "fuzzy"
+    }
 
     fn normalize(&self, segment: &CodeSegment) -> Vec<CodeSegment> {
         let mut variants = vec![segment.clone()];
@@ -139,7 +182,9 @@ impl CodeNormalizer for FuzzyNormalizer {
 pub struct PassthroughNormalizer;
 
 impl CodeNormalizer for PassthroughNormalizer {
-    fn name(&self) -> &str { "passthrough" }
+    fn name(&self) -> &str {
+        "passthrough"
+    }
     fn normalize(&self, segment: &CodeSegment) -> Vec<CodeSegment> {
         vec![segment.clone()]
     }
@@ -167,11 +212,15 @@ impl AbbreviationNormalizer {
 }
 
 impl Default for AbbreviationNormalizer {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CodeNormalizer for AbbreviationNormalizer {
-    fn name(&self) -> &str { "abbreviation" }
+    fn name(&self) -> &str {
+        "abbreviation"
+    }
 
     fn normalize(&self, segment: &CodeSegment) -> Vec<CodeSegment> {
         vec![segment.clone()]
@@ -222,7 +271,9 @@ impl CompositeNormalizer {
 }
 
 impl CodeNormalizer for CompositeNormalizer {
-    fn name(&self) -> &str { "composite" }
+    fn name(&self) -> &str {
+        "composite"
+    }
 
     fn normalize(&self, segment: &CodeSegment) -> Vec<CodeSegment> {
         let mut current = vec![segment.clone()];
@@ -254,7 +305,10 @@ mod tests {
     #[test]
     fn fuzzy_zh_to_z_prefix() {
         let n = FuzzyNormalizer::standard();
-        let seg = CodeSegment { code: "zhong".into(), tag: "pinyin".into() };
+        let seg = CodeSegment {
+            code: "zhong".into(),
+            tag: "pinyin".into(),
+        };
         let vars = n.normalize(&seg);
         assert!(vars.iter().any(|v| v.code == "zhong"));
         assert!(vars.iter().any(|v| v.code == "zong"));
@@ -263,7 +317,10 @@ mod tests {
     #[test]
     fn fuzzy_z_to_zh_reverse() {
         let n = FuzzyNormalizer::standard();
-        let seg = CodeSegment { code: "zong".into(), tag: "pinyin".into() };
+        let seg = CodeSegment {
+            code: "zong".into(),
+            tag: "pinyin".into(),
+        };
         let vars = n.normalize(&seg);
         assert!(vars.iter().any(|v| v.code == "zong"));
         assert!(vars.iter().any(|v| v.code == "zhong"));
@@ -272,16 +329,28 @@ mod tests {
     #[test]
     fn fuzzy_ang_suffix() {
         let n = FuzzyNormalizer::standard();
-        let seg = CodeSegment { code: "bang".into(), tag: "pinyin".into() };
+        let seg = CodeSegment {
+            code: "bang".into(),
+            tag: "pinyin".into(),
+        };
         let vars = n.normalize(&seg);
-        assert!(vars.iter().any(|v| v.code == "bang"), "should keep original");
-        assert!(vars.iter().any(|v| v.code == "ban"), "ang→an suffix should fire");
+        assert!(
+            vars.iter().any(|v| v.code == "bang"),
+            "should keep original"
+        );
+        assert!(
+            vars.iter().any(|v| v.code == "ban"),
+            "ang→an suffix should fire"
+        );
     }
 
     #[test]
     fn fuzzy_an_to_ang_reverse() {
         let n = FuzzyNormalizer::standard();
-        let seg = CodeSegment { code: "ban".into(), tag: "pinyin".into() };
+        let seg = CodeSegment {
+            code: "ban".into(),
+            tag: "pinyin".into(),
+        };
         let vars = n.normalize(&seg);
         assert!(vars.iter().any(|v| v.code == "ban"));
         assert!(vars.iter().any(|v| v.code == "bang"));
@@ -290,7 +359,10 @@ mod tests {
     #[test]
     fn fuzzy_normalize_all_produces_independent_alternatives() {
         let n = FuzzyNormalizer::standard();
-        let segments = vec![CodeSegment { code: "zhong".into(), tag: "pinyin".into() }];
+        let segments = vec![CodeSegment {
+            code: "zhong".into(),
+            tag: "pinyin".into(),
+        }];
         let alts = n.normalize_all(&segments);
         // Should produce [["zhong"], ["zong"]] — two independent alternatives
         assert_eq!(alts.len(), 2);
@@ -302,11 +374,21 @@ mod tests {
     fn abbreviation_expands_to_independent_alternatives() {
         let norm = AbbreviationNormalizer::new();
         let segments = vec![
-            CodeSegment { code: "n".into(), tag: "pinyin".into() },
-            CodeSegment { code: "h".into(), tag: "pinyin".into() },
+            CodeSegment {
+                code: "n".into(),
+                tag: "pinyin".into(),
+            },
+            CodeSegment {
+                code: "h".into(),
+                tag: "pinyin".into(),
+            },
         ];
         let alts = norm.normalize_all(&segments);
-        assert!(alts.len() > 20, "expected many alternatives, got {}", alts.len());
+        assert!(
+            alts.len() > 20,
+            "expected many alternatives, got {}",
+            alts.len()
+        );
         // Each alternative should be [expanded_syllable, "h"]
         for alt in &alts {
             assert_eq!(alt.len(), 2);
@@ -314,15 +396,24 @@ mod tests {
             assert!(alt[0].code.len() > 1);
         }
         // Should contain "ni" + "h"
-        assert!(alts.iter().any(|a| a[0].code == "ni"), "should contain ni expansion");
+        assert!(
+            alts.iter().any(|a| a[0].code == "ni"),
+            "should contain ni expansion"
+        );
     }
 
     #[test]
     fn abbreviation_mixed_input_passthrough() {
         let norm = AbbreviationNormalizer::new();
         let segments = vec![
-            CodeSegment { code: "n".into(), tag: "pinyin".into() },
-            CodeSegment { code: "hao".into(), tag: "pinyin".into() },
+            CodeSegment {
+                code: "n".into(),
+                tag: "pinyin".into(),
+            },
+            CodeSegment {
+                code: "hao".into(),
+                tag: "pinyin".into(),
+            },
         ];
         let alts = norm.normalize_all(&segments);
         assert_eq!(alts.len(), 1, "mixed input should passthrough");
@@ -338,12 +429,24 @@ mod tests {
         ]);
         // "zg" = pure abbreviation
         let segments = vec![
-            CodeSegment { code: "z".into(), tag: "pinyin".into() },
-            CodeSegment { code: "g".into(), tag: "pinyin".into() },
+            CodeSegment {
+                code: "z".into(),
+                tag: "pinyin".into(),
+            },
+            CodeSegment {
+                code: "g".into(),
+                tag: "pinyin".into(),
+            },
         ];
         let alts = composite.normalize_all(&segments);
         // Should contain both z→zh fuzzy expansions and abbreviation expansions
-        assert!(alts.iter().any(|a| a[0].code == "zong"), "should contain zong");
-        assert!(alts.iter().any(|a| a[0].code == "zhong"), "fuzzy z→zh should add zhong");
+        assert!(
+            alts.iter().any(|a| a[0].code == "zong"),
+            "should contain zong"
+        );
+        assert!(
+            alts.iter().any(|a| a[0].code == "zhong"),
+            "fuzzy z→zh should add zhong"
+        );
     }
 }

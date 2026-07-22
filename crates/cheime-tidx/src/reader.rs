@@ -1,6 +1,6 @@
 #![allow(unsafe_code)]
 
-use crate::format::{self, TidexHeader, read_code_idx_entry, read_block_entry, read_text};
+use crate::format::{self, read_block_entry, read_code_idx_entry, read_text};
 use memmap2::Mmap;
 use std::path::Path;
 
@@ -25,10 +25,13 @@ impl TidexReader {
             source: e,
         })?;
 
-        let len = file.metadata().map_err(|e| TidexError::Io {
-            path: path.to_path_buf(),
-            source: e,
-        })?.len();
+        let len = file
+            .metadata()
+            .map_err(|e| TidexError::Io {
+                path: path.to_path_buf(),
+                source: e,
+            })?
+            .len();
 
         if len == 0 {
             return Err(TidexError::EmptyFile {
@@ -87,7 +90,6 @@ impl TidexReader {
         unsafe { read_text(self.data, code_off) }
     }
 
-
     /// Read the entry text and weight at Level-2 block index `blk_idx`.
     fn read_block(&self, blk_idx: u32) -> (&str, i32) {
         let (text_off, weight) = read_block_entry(self.data, self.block_tbl_base, blk_idx);
@@ -113,7 +115,8 @@ impl TidexReader {
                 std::cmp::Ordering::Less => lo = mid + 1,
                 std::cmp::Ordering::Greater => hi = mid,
                 std::cmp::Ordering::Equal => {
-                    let (_, first_blk, count) = read_code_idx_entry(self.data, self.code_idx_base, mid);
+                    let (_, first_blk, count) =
+                        read_code_idx_entry(self.data, self.code_idx_base, mid);
                     return Some((first_blk, count));
                 }
             }
@@ -219,9 +222,7 @@ pub enum TidexError {
         source: std::io::Error,
     },
     #[error("empty file: {path}")]
-    EmptyFile {
-        path: std::path::PathBuf,
-    },
+    EmptyFile { path: std::path::PathBuf },
     #[error("invalid format in {path}: {reason}")]
     Format {
         path: std::path::PathBuf,
@@ -241,24 +242,18 @@ mod tests {
 
     fn build_test_tidex(path: &Path) {
         let entries: &[(&str, &[(String, i32)])] = &[
-            ("na", &[
-                ("那".to_string(), 100),
-                ("拿".to_string(), 60),
-            ][..]),
-            ("ni", &[
-                ("你".to_string(), 200),
-                ("呢".to_string(), 90),
-                ("尼".to_string(), 70),
-            ][..]),
-            ("ni hao", &[
-                ("你好".to_string(), 300),
-            ][..]),
-            ("ni men", &[
-                ("你们".to_string(), 150),
-            ][..]),
-            ("za", &[
-                ("咋".to_string(), 50),
-            ][..]),
+            ("na", &[("那".to_string(), 100), ("拿".to_string(), 60)][..]),
+            (
+                "ni",
+                &[
+                    ("你".to_string(), 200),
+                    ("呢".to_string(), 90),
+                    ("尼".to_string(), 70),
+                ][..],
+            ),
+            ("ni hao", &[("你好".to_string(), 300)][..]),
+            ("ni men", &[("你们".to_string(), 150)][..]),
+            ("za", &[("咋".to_string(), 50)][..]),
         ];
         write_tidex(path, entries).unwrap();
     }
@@ -271,9 +266,9 @@ mod tests {
 
         let results = r.query("ni");
         assert_eq!(results.len(), 3);
-        assert_eq!(results[0].0, "你");   // weight 200
-        assert_eq!(results[1].0, "呢");   // weight 90
-        assert_eq!(results[2].0, "尼");   // weight 70
+        assert_eq!(results[0].0, "你"); // weight 200
+        assert_eq!(results[1].0, "呢"); // weight 90
+        assert_eq!(results[2].0, "尼"); // weight 70
     }
 
     #[test]

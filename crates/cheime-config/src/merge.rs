@@ -16,7 +16,9 @@ pub struct ConfigLoader {
 }
 
 impl ConfigLoader {
-    pub fn new() -> Self { Self { base_dir: None } }
+    pub fn new() -> Self {
+        Self { base_dir: None }
+    }
 
     pub fn with_base_dir(mut self, dir: impl Into<String>) -> Self {
         self.base_dir = Some(dir.into());
@@ -25,14 +27,18 @@ impl ConfigLoader {
 }
 
 impl Default for ConfigLoader {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ConfigLoader {
     /// Load a schema from YAML, resolving all extends chains.
     pub fn load(&self, yaml: &str) -> Result<SchemaConfig, ConfigError> {
-        let config: SchemaConfig = serde_yaml::from_str(yaml)
-            .map_err(|e| ConfigError::Parse { path: "<inline>".into(), message: e.to_string() })?;
+        let config: SchemaConfig = serde_yaml::from_str(yaml).map_err(|e| ConfigError::Parse {
+            path: "<inline>".into(),
+            message: e.to_string(),
+        })?;
 
         // Resolve extends chain
         self.resolve_extends(config, &mut HashSet::new())
@@ -40,11 +46,13 @@ impl ConfigLoader {
 
     /// Load from a file, resolving extends relative to the file's directory.
     pub fn load_file(&self, path: &Path) -> Result<SchemaConfig, ConfigError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ConfigError::Io(e.to_string()))?;
+        let content = std::fs::read_to_string(path).map_err(|e| ConfigError::Io(e.to_string()))?;
         let path_str = path.to_string_lossy().to_string();
-        let config: SchemaConfig = serde_yaml::from_str(&content)
-            .map_err(|e| ConfigError::Parse { path: path_str.clone(), message: e.to_string() })?;
+        let config: SchemaConfig =
+            serde_yaml::from_str(&content).map_err(|e| ConfigError::Parse {
+                path: path_str.clone(),
+                message: e.to_string(),
+            })?;
 
         // Resolve extends relative to this file's directory
         let dir = path.parent().map(|p| p.to_string_lossy().to_string());
@@ -79,8 +87,10 @@ impl ConfigLoader {
     fn load_parent(&self, name: &str) -> Result<SchemaConfig, ConfigError> {
         // Try as inline YAML first (for tests), then as file path
         if name.contains('\n') || name.contains(": ") {
-            return serde_yaml::from_str(name)
-                .map_err(|e| ConfigError::Parse { path: name.to_string(), message: e.to_string() });
+            return serde_yaml::from_str(name).map_err(|e| ConfigError::Parse {
+                path: name.to_string(),
+                message: e.to_string(),
+            });
         }
 
         // As file path
@@ -90,10 +100,12 @@ impl ConfigLoader {
             Path::new(name).with_extension("yaml")
         };
 
-        let content = std::fs::read_to_string(&path)
-            .map_err(|_| ConfigError::NotFound(name.to_string()))?;
-        serde_yaml::from_str(&content)
-            .map_err(|e| ConfigError::Parse { path: path.to_string_lossy().to_string(), message: e.to_string() })
+        let content =
+            std::fs::read_to_string(&path).map_err(|_| ConfigError::NotFound(name.to_string()))?;
+        serde_yaml::from_str(&content).map_err(|e| ConfigError::Parse {
+            path: path.to_string_lossy().to_string(),
+            message: e.to_string(),
+        })
     }
 }
 
@@ -102,11 +114,15 @@ impl ConfigLoader {
 /// Maps are merged recursively.
 pub(crate) fn merge_configs(mut parent: SchemaConfig, child: SchemaConfig) -> SchemaConfig {
     // Schema meta
-    if child.schema.is_some() { parent.schema = child.schema; }
+    if child.schema.is_some() {
+        parent.schema = child.schema;
+    }
 
     // Engine: merge component lists by prepending child processors before parent
-    if !child.engine.processors.is_empty() || !child.engine.segmentors.is_empty()
-        || !child.engine.translators.is_empty() || !child.engine.filters.is_empty()
+    if !child.engine.processors.is_empty()
+        || !child.engine.segmentors.is_empty()
+        || !child.engine.translators.is_empty()
+        || !child.engine.filters.is_empty()
     {
         let mut engine = parent.engine;
         // Child processors prepend (child's come first)
@@ -129,18 +145,30 @@ pub(crate) fn merge_configs(mut parent: SchemaConfig, child: SchemaConfig) -> Sc
     }
 
     // Switches: child replaces parent entirely (simpler semantics)
-    if !child.switches.is_empty() { parent.switches = child.switches; }
+    if !child.switches.is_empty() {
+        parent.switches = child.switches;
+    }
 
     // Speller: shallow merge
     if let Some(cs) = child.speller {
         let mut ps = parent.speller.unwrap_or_default();
-        if cs.alphabet.is_some() { ps.alphabet = cs.alphabet; }
-        if cs.initials.is_some() { ps.initials = cs.initials; }
-        if cs.delimiter.is_some() { ps.delimiter = cs.delimiter; }
-        if cs.max_code_length != 0 { ps.max_code_length = cs.max_code_length; }
+        if cs.alphabet.is_some() {
+            ps.alphabet = cs.alphabet;
+        }
+        if cs.initials.is_some() {
+            ps.initials = cs.initials;
+        }
+        if cs.delimiter.is_some() {
+            ps.delimiter = cs.delimiter;
+        }
+        if cs.max_code_length != 0 {
+            ps.max_code_length = cs.max_code_length;
+        }
         ps.auto_select = cs.auto_select;
         ps.use_space = cs.use_space;
-        if !cs.algebra.is_empty() { ps.algebra = cs.algebra; }
+        if !cs.algebra.is_empty() {
+            ps.algebra = cs.algebra;
+        }
         parent.speller = Some(ps);
     }
 
@@ -175,7 +203,8 @@ menu:
   page_size: 5
 "#;
         // Load parent first, then manually construct child with extends
-        let mut child: SchemaConfig = serde_yaml::from_str(r#"
+        let mut child: SchemaConfig = serde_yaml::from_str(
+            r#"
 schema_version: 1
 extends: []
 engine:
@@ -185,14 +214,19 @@ engine:
     - type: uniquifier
 menu:
   page_size: 9
-"#).unwrap();
+"#,
+        )
+        .unwrap();
         // Manually set extends to point to parent (as inline YAML name)
         child.extends = vec![parent.to_string()];
 
         let loader = ConfigLoader::new();
         let merged = loader.resolve_extends(child, &mut HashSet::new()).unwrap();
         assert_eq!(merged.engine.processors.len(), 2);
-        assert!(matches!(merged.engine.processors[0], crate::schema::ProcessorConfig::Speller));
+        assert!(matches!(
+            merged.engine.processors[0],
+            crate::schema::ProcessorConfig::Speller
+        ));
         assert_eq!(merged.menu.page_size, 9);
         assert_eq!(merged.engine.translators.len(), 1);
         assert_eq!(merged.engine.filters.len(), 1);
@@ -215,11 +249,16 @@ engine: {}
 
     #[test]
     fn direct_merge_overrides_page_size() {
-        let p9: SchemaConfig = serde_yaml::from_str("schema_version: 1\nengine: {}\nmenu:\n  page_size: 9\n").unwrap();
-        let p5: SchemaConfig = serde_yaml::from_str("schema_version: 1\nengine: {}\nmenu:\n  page_size: 5\n").unwrap();
+        let p9: SchemaConfig =
+            serde_yaml::from_str("schema_version: 1\nengine: {}\nmenu:\n  page_size: 9\n").unwrap();
+        let p5: SchemaConfig =
+            serde_yaml::from_str("schema_version: 1\nengine: {}\nmenu:\n  page_size: 5\n").unwrap();
         assert_eq!(p9.menu.page_size, 9);
         assert_eq!(p5.menu.page_size, 5);
         let merged = merge_configs(p9, p5);
-        assert_eq!(merged.menu.page_size, 5, "child page_size=5 should override parent page_size=9");
+        assert_eq!(
+            merged.menu.page_size, 5,
+            "child page_size=5 should override parent page_size=9"
+        );
     }
 }

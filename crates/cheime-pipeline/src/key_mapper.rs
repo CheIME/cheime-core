@@ -29,9 +29,10 @@ pub struct QuanPinMapper;
 impl KeyMapper for QuanPinMapper {
     fn map(&mut self, event: &KeyEvent) -> KeyMapResult {
         match event.key {
-            Key::Character(c) if c.is_ascii_lowercase() => {
-                KeyMapResult { characters: vec![c], consumed: false }
-            }
+            Key::Character(c) if c.is_ascii_lowercase() => KeyMapResult {
+                characters: vec![c],
+                consumed: false,
+            },
             _ => KeyMapResult::default(),
         }
     }
@@ -69,14 +70,21 @@ impl DoublePinyinMapper {
         let mapping: HashMap<char, KeyMapping> = entries
             .into_iter()
             .map(|(ch, init, fin, sa)| {
-                (ch, KeyMapping {
-                    initial: init.chars().collect(),
-                    final_chars: fin.chars().collect(),
-                    standalone: sa,
-                })
+                (
+                    ch,
+                    KeyMapping {
+                        initial: init.chars().collect(),
+                        final_chars: fin.chars().collect(),
+                        standalone: sa,
+                    },
+                )
             })
             .collect();
-        Self { state: 0, buffer: Vec::new(), mapping }
+        Self {
+            state: 0,
+            buffer: Vec::new(),
+            mapping,
+        }
     }
 
     /// Load from TSV: `key<TAB>initial<TAB>final[<TAB>standalone]`.
@@ -85,14 +93,25 @@ impl DoublePinyinMapper {
         let mut entries = Vec::new();
         for (i, line) in tsv.lines().enumerate() {
             let t = line.trim();
-            if t.is_empty() || t.starts_with('#') { continue; }
+            if t.is_empty() || t.starts_with('#') {
+                continue;
+            }
             let parts: Vec<&str> = t.split('\t').collect();
             if parts.len() < 3 {
-                return Err(format!("line {}: need key<TAB>initial<TAB>final[<TAB>sa]", i + 1));
+                return Err(format!(
+                    "line {}: need key<TAB>initial<TAB>final[<TAB>sa]",
+                    i + 1
+                ));
             }
-            let ch = parts[0].chars().next()
+            let ch = parts[0]
+                .chars()
+                .next()
                 .ok_or_else(|| format!("line {}: empty key", i + 1))?;
-            let sa = parts.get(3).copied().map(|s| s == "1" || s == "true").unwrap_or(true);
+            let sa = parts
+                .get(3)
+                .copied()
+                .map(|s| s == "1" || s == "true")
+                .unwrap_or(true);
             entries.push((ch, parts[1], parts[2], sa));
         }
         Ok(Self::from_entries(entries))
@@ -100,9 +119,15 @@ impl DoublePinyinMapper {
 
     // ── Presets ──────────────────────────────────────────────────────
 
-    pub fn flypy() -> Self { Self::from_entries(FLYPY_ENTRIES.iter().copied()) }
-    pub fn ms_double() -> Self { Self::from_entries(MS_DOUBLE_ENTRIES.iter().copied()) }
-    pub fn ziranma() -> Self { Self::from_entries(ZIRANMA_ENTRIES.iter().copied()) }
+    pub fn flypy() -> Self {
+        Self::from_entries(FLYPY_ENTRIES.iter().copied())
+    }
+    pub fn ms_double() -> Self {
+        Self::from_entries(MS_DOUBLE_ENTRIES.iter().copied())
+    }
+    pub fn ziranma() -> Self {
+        Self::from_entries(ZIRANMA_ENTRIES.iter().copied())
+    }
 }
 
 impl KeyMapper for DoublePinyinMapper {
@@ -110,13 +135,17 @@ impl KeyMapper for DoublePinyinMapper {
         let ch = match event.key {
             Key::Character(c) if c.is_ascii_lowercase() => c,
             _ => {
-                self.state = 0; self.buffer.clear();
+                self.state = 0;
+                self.buffer.clear();
                 return KeyMapResult::default();
             }
         };
 
         let Some(km) = self.mapping.get(&ch) else {
-            return KeyMapResult { characters: vec![ch], consumed: false };
+            return KeyMapResult {
+                characters: vec![ch],
+                consumed: false,
+            };
         };
 
         if self.state == 1 {
@@ -125,85 +154,142 @@ impl KeyMapper for DoublePinyinMapper {
             if !km.final_chars.is_empty() {
                 let mut result = std::mem::take(&mut self.buffer);
                 result.extend(&km.final_chars);
-                return KeyMapResult { characters: result, consumed: false };
+                return KeyMapResult {
+                    characters: result,
+                    consumed: false,
+                };
             }
             let mut result = std::mem::take(&mut self.buffer);
             result.push(ch);
-            return KeyMapResult { characters: result, consumed: false };
+            return KeyMapResult {
+                characters: result,
+                consumed: false,
+            };
         }
 
         // State 0: waiting for initial
         if !km.initial.is_empty() {
             self.buffer = km.initial.clone();
             self.state = 1;
-            return KeyMapResult { characters: Vec::new(), consumed: true };
+            return KeyMapResult {
+                characters: Vec::new(),
+                consumed: true,
+            };
         }
 
         // Zero-initial: standalone → emit now; non-standalone → buffer, wait
         if !km.final_chars.is_empty() {
             if km.standalone {
-                return KeyMapResult { characters: km.final_chars.clone(), consumed: false };
+                return KeyMapResult {
+                    characters: km.final_chars.clone(),
+                    consumed: false,
+                };
             }
             self.state = 1;
-            return KeyMapResult { characters: Vec::new(), consumed: true };
+            return KeyMapResult {
+                characters: Vec::new(),
+                consumed: true,
+            };
         }
 
-        KeyMapResult { characters: vec![ch], consumed: false }
+        KeyMapResult {
+            characters: vec![ch],
+            consumed: false,
+        }
     }
 }
 
 // ── Flypy (小鹤双拼) ────────────────────────────────────────────────
 
 const FLYPY_ENTRIES: &[(char, &str, &str, bool)] = &[
-    ('a', "", "a", true),   ('b', "b", "in", false),
-    ('c', "c", "ao", false),('d', "d", "ai", false),
-    ('e', "", "e", true),   ('f', "f", "en", false),
-    ('g', "g", "eng", false),('h', "h", "ang", false),
-    ('i', "ch", "i", false),('j', "j", "an", false),
-    ('k', "k", "ing", false),('l', "l", "uang", false),
-    ('m', "m", "ian", false),('n', "n", "iao", false),
-    ('o', "", "o", true),   ('p', "p", "ie", false),
-    ('q', "q", "iu", false),('r', "r", "uan", false),
-    ('s', "s", "ong", false),('t', "t", "ue", false),
-    ('u', "sh", "u", false),('v', "zh", "ui", false),
-    ('w', "w", "ei", false),('x', "x", "ia", false),
-    ('y', "y", "un", false),('z', "z", "ou", false),
+    ('a', "", "a", true),
+    ('b', "b", "in", false),
+    ('c', "c", "ao", false),
+    ('d', "d", "ai", false),
+    ('e', "", "e", true),
+    ('f', "f", "en", false),
+    ('g', "g", "eng", false),
+    ('h', "h", "ang", false),
+    ('i', "ch", "i", false),
+    ('j', "j", "an", false),
+    ('k', "k", "ing", false),
+    ('l', "l", "uang", false),
+    ('m', "m", "ian", false),
+    ('n', "n", "iao", false),
+    ('o', "", "o", true),
+    ('p', "p", "ie", false),
+    ('q', "q", "iu", false),
+    ('r', "r", "uan", false),
+    ('s', "s", "ong", false),
+    ('t', "t", "ue", false),
+    ('u', "sh", "u", false),
+    ('v', "zh", "ui", false),
+    ('w', "w", "ei", false),
+    ('x', "x", "ia", false),
+    ('y', "y", "un", false),
+    ('z', "z", "ou", false),
 ];
 
 // ── MS Double Pinyin (微软双拼) ─────────────────────────────────────
 
 const MS_DOUBLE_ENTRIES: &[(char, &str, &str, bool)] = &[
-    ('a', "", "a", true),   ('b', "b", "ou", false),
-    ('c', "c", "iao", false),('d', "d", "uang", false),
-    ('e', "", "e", true),   ('f', "f", "en", false),
-    ('g', "g", "eng", false),('h', "h", "ang", false),
-    ('i', "ch", "i", false),('j', "j", "ian", false),
-    ('k', "k", "ao", false),('l', "l", "ai", false),
-    ('m', "m", "ian", false),('n', "n", "in", false),
-    ('o', "", "o", true),   ('p', "p", "un", false),
-    ('q', "q", "iu", false),('r', "r", "uan", false),
-    ('s', "s", "ong", false),('t', "t", "ue", false),
-    ('u', "sh", "u", false),('v', "zh", "ue", false),
-    ('w', "w", "ia", false),('x', "x", "ie", false),
-    ('y', "y", "uai", false),('z', "z", "ei", false),
+    ('a', "", "a", true),
+    ('b', "b", "ou", false),
+    ('c', "c", "iao", false),
+    ('d', "d", "uang", false),
+    ('e', "", "e", true),
+    ('f', "f", "en", false),
+    ('g', "g", "eng", false),
+    ('h', "h", "ang", false),
+    ('i', "ch", "i", false),
+    ('j', "j", "ian", false),
+    ('k', "k", "ao", false),
+    ('l', "l", "ai", false),
+    ('m', "m", "ian", false),
+    ('n', "n", "in", false),
+    ('o', "", "o", true),
+    ('p', "p", "un", false),
+    ('q', "q", "iu", false),
+    ('r', "r", "uan", false),
+    ('s', "s", "ong", false),
+    ('t', "t", "ue", false),
+    ('u', "sh", "u", false),
+    ('v', "zh", "ue", false),
+    ('w', "w", "ia", false),
+    ('x', "x", "ie", false),
+    ('y', "y", "uai", false),
+    ('z', "z", "ei", false),
 ];
 
 // ── Ziranma (自然码双拼) ────────────────────────────────────────────
 
 const ZIRANMA_ENTRIES: &[(char, &str, &str, bool)] = &[
-    ('a', "", "a", true),   ('b', "b", "ou", false),
-    ('c', "c", "iao", false),('d', "d", "ua", false),
-    ('e', "", "e", true),   ('f', "f", "en", false),
-    ('g', "g", "eng", false),('h', "h", "ang", false),
-    ('i', "ch", "i", false),('j', "j", "an", false),
-    ('k', "k", "ao", false),('l', "l", "ai", false),
-    ('m', "m", "ian", false),('n', "n", "in", false),
-    ('o', "", "o", true),   ('p', "p", "un", false),
-    ('q', "q", "iu", false),('r', "r", "uan", false),
-    ('s', "s", "ong", false),('t', "t", "ve", false),
-    ('u', "sh", "u", false),('v', "zh", "ui", false),
-    ('w', "w", "ia", false),('x', "x", "ie", false),
-    ('y', "y", "ing", false),('z', "z", "ei", false),
+    ('a', "", "a", true),
+    ('b', "b", "ou", false),
+    ('c', "c", "iao", false),
+    ('d', "d", "ua", false),
+    ('e', "", "e", true),
+    ('f', "f", "en", false),
+    ('g', "g", "eng", false),
+    ('h', "h", "ang", false),
+    ('i', "ch", "i", false),
+    ('j', "j", "an", false),
+    ('k', "k", "ao", false),
+    ('l', "l", "ai", false),
+    ('m', "m", "ian", false),
+    ('n', "n", "in", false),
+    ('o', "", "o", true),
+    ('p', "p", "un", false),
+    ('q', "q", "iu", false),
+    ('r', "r", "uan", false),
+    ('s', "s", "ong", false),
+    ('t', "t", "ve", false),
+    ('u', "sh", "u", false),
+    ('v', "zh", "ui", false),
+    ('w', "w", "ia", false),
+    ('x', "x", "ie", false),
+    ('y', "y", "ing", false),
+    ('z', "z", "ei", false),
 ];
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -213,55 +299,77 @@ mod tests {
     use super::*;
     use cheime_model::KeyState;
 
-    fn k(ch: char) -> KeyEvent { KeyEvent { key: Key::Character(ch), state: KeyState::default() } }
-
-    #[test] fn quanpin_passthrough() {
-        let mut m = QuanPinMapper; let r = m.map(&k('n'));
-        assert_eq!(r.characters, vec!['n']); assert!(!r.consumed);
+    fn k(ch: char) -> KeyEvent {
+        KeyEvent {
+            key: Key::Character(ch),
+            state: KeyState::default(),
+        }
     }
 
-    #[test] fn flypy_vs_zhong() {
+    #[test]
+    fn quanpin_passthrough() {
+        let mut m = QuanPinMapper;
+        let r = m.map(&k('n'));
+        assert_eq!(r.characters, vec!['n']);
+        assert!(!r.consumed);
+    }
+
+    #[test]
+    fn flypy_vs_zhong() {
         let mut m = DoublePinyinMapper::flypy();
-        let r1 = m.map(&k('v')); assert!(r1.consumed); assert!(r1.characters.is_empty());
+        let r1 = m.map(&k('v'));
+        assert!(r1.consumed);
+        assert!(r1.characters.is_empty());
         let r2 = m.map(&k('s'));
         assert_eq!(r2.characters, vec!['z', 'h', 'o', 'n', 'g']);
     }
 
-    #[test] fn flypy_nj_nan() {
+    #[test]
+    fn flypy_nj_nan() {
         let mut m = DoublePinyinMapper::flypy();
         m.map(&k('n'));
         assert_eq!(m.map(&k('j')).characters, vec!['n', 'a', 'n']);
     }
 
-    #[test] fn flypy_standalone_a() {
+    #[test]
+    fn flypy_standalone_a() {
         // 'a' has standalone=true → emits "a" immediately
         let r = DoublePinyinMapper::flypy().map(&k('a'));
         assert_eq!(r.characters, vec!['a']);
     }
 
-    #[test] fn flypy_backspace_resets_state() {
+    #[test]
+    fn flypy_backspace_resets_state() {
         let mut m = DoublePinyinMapper::flypy();
-        m.map(&k('v')); assert_eq!(m.state, 1);
-        m.map(&KeyEvent { key: Key::Backspace, state: KeyState::default() });
-        assert_eq!(m.state, 0); assert!(m.buffer.is_empty());
+        m.map(&k('v'));
+        assert_eq!(m.state, 1);
+        m.map(&KeyEvent {
+            key: Key::Backspace,
+            state: KeyState::default(),
+        });
+        assert_eq!(m.state, 0);
+        assert!(m.buffer.is_empty());
     }
 
-    #[test] fn custom_non_standalone_ad_to_ai() {
+    #[test]
+    fn custom_non_standalone_ad_to_ai() {
         // 'a' with standalone=false → zero-initial that waits
         let entries = vec![('a', "", "a", false), ('d', "d", "ai", false)];
         let mut m = DoublePinyinMapper::from_entries(entries);
-        m.map(&k('a'));                   // zero-initial, buffers nothing, consumed
-        let r = m.map(&k('d'));           // final "ai"
+        m.map(&k('a')); // zero-initial, buffers nothing, consumed
+        let r = m.map(&k('d')); // final "ai"
         assert_eq!(r.characters, vec!['a', 'i']);
     }
 
-    #[test] fn ms_double_has_different_mapping() {
+    #[test]
+    fn ms_double_has_different_mapping() {
         let mut m = DoublePinyinMapper::ms_double();
         m.map(&k('m'));
         assert_eq!(m.map(&k('b')).characters, vec!['m', 'o', 'u']);
     }
 
-    #[test] fn custom_tsv_mapping() {
+    #[test]
+    fn custom_tsv_mapping() {
         let tsv = "# custom\nb\tb\tou\tfalse\nm\tm\tao\tfalse\n";
         let mut m = DoublePinyinMapper::from_tsv(tsv).unwrap();
         m.map(&k('b'));

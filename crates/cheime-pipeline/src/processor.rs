@@ -16,7 +16,8 @@ impl DefaultProcessor {
 }
 
 impl Processor for DefaultProcessor {
-    fn process(&mut self,
+    fn process(
+        &mut self,
         composition: &str,
         event: &KeyEvent,
     ) -> Result<ProcessorOutput, PipelineError> {
@@ -79,9 +80,7 @@ mod tests {
 
     #[test]
     fn backspace_removes_one_char() {
-        let out = processor()
-            .process("ni", &key(Key::Backspace))
-            .unwrap();
+        let out = processor().process("ni", &key(Key::Backspace)).unwrap();
         assert_eq!(out.composition, "n");
     }
 

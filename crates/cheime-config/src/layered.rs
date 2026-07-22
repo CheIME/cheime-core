@@ -26,7 +26,6 @@
 //!     session.json       ← layer 4: engine-managed, written by engine
 //! ```
 
-
 use crate::profile::UserProfile;
 use crate::schema::SchemaConfig;
 use crate::state::RuntimeState;
@@ -48,10 +47,18 @@ impl LayeredConfig {
 
     // ── Path helpers ────────────────────────────────────────────────
 
-    fn user_dir(&self) -> PathBuf { self.data_dir.join("user") }
-    fn state_dir(&self) -> PathBuf { self.data_dir.join("state") }
-    fn profile_path(&self) -> PathBuf { self.user_dir().join("profile.yaml") }
-    fn session_path(&self) -> PathBuf { self.state_dir().join("session.json") }
+    fn user_dir(&self) -> PathBuf {
+        self.data_dir.join("user")
+    }
+    fn state_dir(&self) -> PathBuf {
+        self.data_dir.join("state")
+    }
+    fn profile_path(&self) -> PathBuf {
+        self.user_dir().join("profile.yaml")
+    }
+    fn session_path(&self) -> PathBuf {
+        self.state_dir().join("session.json")
+    }
 
     // ── Resolution ──────────────────────────────────────────────────
 
@@ -191,7 +198,11 @@ menu:
 
         // User's page_size wins over deployed
         let patch = resolved.profile.patch.as_ref().unwrap();
-        assert_eq!(resolved.config.menu.page_size, 5, "user override should win (patch={}, resolved={}, deployed={})", patch.menu.page_size, resolved.config.menu.page_size, deployed.schema.menu.page_size);
+        assert_eq!(
+            resolved.config.menu.page_size, 5,
+            "user override should win (patch={}, resolved={}, deployed={})",
+            patch.menu.page_size, resolved.config.menu.page_size, deployed.schema.menu.page_size
+        );
     }
 
     #[test]
@@ -213,7 +224,8 @@ patch:
     page_size: 5
   engine: {}
 "#,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Layer 4: runtime state
         let state_dir = data.join("state");

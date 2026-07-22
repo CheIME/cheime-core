@@ -15,7 +15,10 @@ impl DeploymentHandle {
 
     pub fn generation(&self) -> DeploymentGeneration {
         // Return gen or fallback to gen 0
-        self.0.generation().copied().unwrap_or_else(|| DeploymentGeneration::new(0))
+        self.0
+            .generation()
+            .copied()
+            .unwrap_or_else(|| DeploymentGeneration::new(0))
     }
 }
 

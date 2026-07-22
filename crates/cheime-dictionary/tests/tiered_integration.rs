@@ -80,7 +80,11 @@ fn tiered_index_matches_memory_mode() {
     assert!(!entries.is_empty(), "should have entries");
 
     let mem_idx = CompiledIndex::build(entries.clone(), DeploymentGeneration::new(1));
-    eprintln!("Memory index: {} entries, {} hash", mem_idx.total_entries(), mem_idx.source_hash());
+    eprintln!(
+        "Memory index: {} entries, {} hash",
+        mem_idx.total_entries(),
+        mem_idx.source_hash()
+    );
 
     let hot_per_code = 5;
     let grouped = group_entries(entries);
@@ -92,14 +96,22 @@ fn tiered_index_matches_memory_mode() {
         .collect();
 
     let entry_count: usize = code_refs.iter().map(|(_, e)| e.len()).sum();
-    eprintln!("Building .tidx: {} codes, {} entries", code_refs.len(), entry_count);
+    eprintln!(
+        "Building .tidx: {} codes, {} entries",
+        code_refs.len(),
+        entry_count
+    );
 
     let tmp = tempfile::TempDir::new().unwrap();
     let tidx_path = tmp.path().join("rime_ice.tidx");
     write_tidex(&tidx_path, &code_refs).expect("write_tidex");
 
     let file_size = std::fs::metadata(&tidx_path).unwrap().len();
-    eprintln!("Wrote .tidx: {} bytes ({:.1} MB)", file_size, file_size as f64 / 1_048_576.0);
+    eprintln!(
+        "Wrote .tidx: {} bytes ({:.1} MB)",
+        file_size,
+        file_size as f64 / 1_048_576.0
+    );
 
     let tiered_idx = CompiledIndex::build_tiered(
         grouped,
@@ -107,22 +119,45 @@ fn tiered_index_matches_memory_mode() {
         hot_per_code,
         mem_idx.source_hash().to_string(),
         DeploymentGeneration::new(1),
-    ).expect("build_tiered");
+    )
+    .expect("build_tiered");
 
-    eprintln!("Total entries: mem={}, tiered={}", mem_idx.total_entries(), tiered_idx.total_entries());
+    eprintln!(
+        "Total entries: mem={}, tiered={}",
+        mem_idx.total_entries(),
+        tiered_idx.total_entries()
+    );
     assert_eq!(mem_idx.total_entries(), tiered_idx.total_entries());
 
-    let sample = ["ni", "wo", "ta", "hao", "zhong", "guo", "shi", "ren", "da",
-        "zhong guo", "xue xi", "shi jie"];
+    let sample = [
+        "ni",
+        "wo",
+        "ta",
+        "hao",
+        "zhong",
+        "guo",
+        "shi",
+        "ren",
+        "da",
+        "zhong guo",
+        "xue xi",
+        "shi jie",
+    ];
 
     for &code in &sample {
         let mem = mem_idx.query(code);
         let tiered = tiered_idx.query(code);
-        if mem.is_empty() && tiered.is_empty() { continue; }
+        if mem.is_empty() && tiered.is_empty() {
+            continue;
+        }
         assert_eq!(mem.len(), tiered.len(), "code '{}' count mismatch", code);
         for (i, (m, t)) in mem.iter().zip(tiered.iter()).enumerate() {
             assert_eq!(m.text, t.text, "code '{}'[{}] text mismatch", code, i);
-            assert_eq!(m.annotation, t.annotation, "code '{}'[{}] annotation mismatch", code, i);
+            assert_eq!(
+                m.annotation, t.annotation,
+                "code '{}'[{}] annotation mismatch",
+                code, i
+            );
         }
     }
 
@@ -136,7 +171,11 @@ fn tiered_index_matches_memory_mode() {
     }
 
     if let CompiledIndex::Tiered(ref t) = tiered_idx {
-        eprintln!("Hot codes: {}, entries: ~{}", t.hot_code_count(), t.hot_code_count() * hot_per_code);
+        eprintln!(
+            "Hot codes: {}, entries: ~{}",
+            t.hot_code_count(),
+            t.hot_code_count() * hot_per_code
+        );
         eprintln!("Cold file: {} MB", file_size as f64 / 1_048_576.0);
     }
 

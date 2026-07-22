@@ -37,8 +37,10 @@ impl RuntimeState {
         }
         let content = std::fs::read_to_string(path)
             .map_err(|e| crate::error::ConfigError::Io(e.to_string()))?;
-        serde_json::from_str(&content)
-            .map_err(|e| crate::error::ConfigError::Parse { path: path.to_string_lossy().to_string(), message: e.to_string() })
+        serde_json::from_str(&content).map_err(|e| crate::error::ConfigError::Parse {
+            path: path.to_string_lossy().to_string(),
+            message: e.to_string(),
+        })
     }
 
     /// Save to a JSON file (called on shutdown / schema switch).
@@ -47,10 +49,12 @@ impl RuntimeState {
             std::fs::create_dir_all(parent)
                 .map_err(|e| crate::error::ConfigError::Io(e.to_string()))?;
         }
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| crate::error::ConfigError::Parse { path: path.to_string_lossy().to_string(), message: e.to_string() })?;
-        std::fs::write(path, json)
-            .map_err(|e| crate::error::ConfigError::Io(e.to_string()))?;
+        let json =
+            serde_json::to_string_pretty(self).map_err(|e| crate::error::ConfigError::Parse {
+                path: path.to_string_lossy().to_string(),
+                message: e.to_string(),
+            })?;
+        std::fs::write(path, json).map_err(|e| crate::error::ConfigError::Io(e.to_string()))?;
         Ok(())
     }
 

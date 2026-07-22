@@ -36,12 +36,12 @@ mod tests {
 
     fn c(text: &str, source: &str, id: u64) -> Candidate {
         Candidate {
-                        id: CandidateId::new(id),
-                        text: text.into(),
-                        annotation: None,
-                        source: source.into(),
-                        is_emoji: false,
-                    }
+            id: CandidateId::new(id),
+            text: text.into(),
+            annotation: None,
+            source: source.into(),
+            is_emoji: false,
+        }
     }
 
     #[test]
@@ -57,10 +57,7 @@ mod tests {
     #[test]
     fn dedup_removes_exact_duplicate_by_text() {
         let filter = DedupFilter::new();
-        let input = vec![
-            c("测试", "dict", 1),
-            c("测试", "user", 2),
-        ];
+        let input = vec![c("测试", "dict", 1), c("测试", "user", 2)];
         let result = filter.filter(input);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].source, "dict"); // keeps first
@@ -88,7 +85,11 @@ mod tests {
         let word = c("赞", "dict", 2);
         let input = vec![emoji.clone(), word.clone()];
         let result = filter.filter(input);
-        assert_eq!(result.len(), 2, "emoji and word have different text strings, both should be kept");
+        assert_eq!(
+            result.len(),
+            2,
+            "emoji and word have different text strings, both should be kept"
+        );
     }
 
     #[test]

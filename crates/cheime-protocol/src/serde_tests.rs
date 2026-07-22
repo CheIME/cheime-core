@@ -31,7 +31,9 @@ fn message_header_round_trip() {
 
 #[test]
 fn frontend_open_session_round_trip() {
-    let msg = FrontendMessage::OpenSession { header: make_header() };
+    let msg = FrontendMessage::OpenSession {
+        header: make_header(),
+    };
     let json = serde_json::to_string(&msg).unwrap();
     let back: FrontendMessage = serde_json::from_str(&json).unwrap();
     assert_eq!(back, msg);
@@ -39,7 +41,9 @@ fn frontend_open_session_round_trip() {
 
 #[test]
 fn frontend_close_session_round_trip() {
-    let msg = FrontendMessage::CloseSession { header: make_header() };
+    let msg = FrontendMessage::CloseSession {
+        header: make_header(),
+    };
     let json = serde_json::to_string(&msg).unwrap();
     let back: FrontendMessage = serde_json::from_str(&json).unwrap();
     assert_eq!(back, msg);
@@ -49,7 +53,10 @@ fn frontend_close_session_round_trip() {
 fn frontend_key_command_round_trip() {
     let msg = FrontendMessage::KeyCommand {
         header: make_header(),
-        event: KeyEvent { key: Key::Character('a'), state: KeyState::default() },
+        event: KeyEvent {
+            key: Key::Character('a'),
+            state: KeyState::default(),
+        },
     };
     let json = serde_json::to_string(&msg).unwrap();
     let back: FrontendMessage = serde_json::from_str(&json).unwrap();
@@ -89,7 +96,9 @@ fn frontend_platform_action_result_round_trip() {
 
 #[test]
 fn engine_session_opened_round_trip() {
-    let msg = EngineMessage::SessionOpened { header: make_header() };
+    let msg = EngineMessage::SessionOpened {
+        header: make_header(),
+    };
     let json = serde_json::to_string(&msg).unwrap();
     let back: EngineMessage = serde_json::from_str(&json).unwrap();
     assert_eq!(back, msg);
@@ -97,7 +106,9 @@ fn engine_session_opened_round_trip() {
 
 #[test]
 fn engine_session_closed_round_trip() {
-    let msg = EngineMessage::SessionClosed { header: make_header() };
+    let msg = EngineMessage::SessionClosed {
+        header: make_header(),
+    };
     let json = serde_json::to_string(&msg).unwrap();
     let back: EngineMessage = serde_json::from_str(&json).unwrap();
     assert_eq!(back, msg);
@@ -111,15 +122,16 @@ fn engine_candidate_snapshot_round_trip() {
         deployment: DeploymentGeneration::new(6),
         preedit: "ni".into(),
         cursor: 2,
-        candidates: vec![
-            Candidate::text(CandidateId::new(8), "你", "builtin"),
-        ],
+        candidates: vec![Candidate::text(CandidateId::new(8), "你", "builtin")],
         highlighted: Some(CandidateId::new(8)),
         status: SessionStatus::Composing,
         page_size: 9,
         page: 0,
     };
-    let msg = EngineMessage::CandidateSnapshot { header: make_header(), snapshot: snap };
+    let msg = EngineMessage::CandidateSnapshot {
+        header: make_header(),
+        snapshot: snap,
+    };
     let json = serde_json::to_string(&msg).unwrap();
     let back: EngineMessage = serde_json::from_str(&json).unwrap();
     assert_eq!(back, msg);
@@ -133,7 +145,10 @@ fn engine_platform_action_round_trip() {
         revision: Revision::new(5),
         kind: PlatformActionKind::Commit { text: "你".into() },
     };
-    let msg = EngineMessage::PlatformAction { header: make_header(), action };
+    let msg = EngineMessage::PlatformAction {
+        header: make_header(),
+        action,
+    };
     let json = serde_json::to_string(&msg).unwrap();
     let back: EngineMessage = serde_json::from_str(&json).unwrap();
     assert_eq!(back, msg);
@@ -141,7 +156,10 @@ fn engine_platform_action_round_trip() {
 
 #[test]
 fn engine_protocol_rejected_round_trip() {
-    let msg = EngineMessage::ProtocolRejected { received: 2, supported: 1 };
+    let msg = EngineMessage::ProtocolRejected {
+        received: 2,
+        supported: 1,
+    };
     let json = serde_json::to_string(&msg).unwrap();
     let back: EngineMessage = serde_json::from_str(&json).unwrap();
     assert_eq!(back, msg);

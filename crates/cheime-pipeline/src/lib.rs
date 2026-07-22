@@ -12,10 +12,10 @@ pub mod ranker;
 pub mod segmentor;
 pub mod simplifier;
 pub mod translator;
+use crate::key_mapper::KeyMapper;
+use crate::normalizer::CodeNormalizer;
 pub use builtin::BuiltinPipeline;
 use cheime_model::{Candidate, Key, KeyEvent};
-use crate::normalizer::CodeNormalizer;
-use crate::key_mapper::KeyMapper;
 use thiserror::Error;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PipelineIntent {
@@ -119,12 +119,22 @@ pub struct ComposablePipeline {
 
 impl ComposablePipeline {
     pub fn new(
-        processor: Box<dyn Processor>, segmentor: Box<dyn Segmentor>,
+        processor: Box<dyn Processor>,
+        segmentor: Box<dyn Segmentor>,
         normalizer: Option<Box<dyn CodeNormalizer>>,
-        translators: Vec<Box<dyn Translator>>, filters: Vec<Box<dyn Filter>>,
+        translators: Vec<Box<dyn Translator>>,
+        filters: Vec<Box<dyn Filter>>,
         ranker: Box<dyn Ranker>,
     ) -> Self {
-        Self { processor: parking_lot::Mutex::new(processor), segmentor, normalizer, translators, filters, ranker, key_mapper: None }
+        Self {
+            processor: parking_lot::Mutex::new(processor),
+            segmentor,
+            normalizer,
+            translators,
+            filters,
+            ranker,
+            key_mapper: None,
+        }
     }
 
     pub fn with_key_mapper(mut self, km: Box<dyn KeyMapper>) -> Self {
@@ -139,12 +149,23 @@ impl InputPipeline for ComposablePipeline {
             let mut km = km.lock();
             let mapped = km.map(event);
             if mapped.consumed {
-                return Ok(PipelineUpdate { composition: composition.to_owned(), candidates: vec![], intent: PipelineIntent::None });
+                return Ok(PipelineUpdate {
+                    composition: composition.to_owned(),
+                    candidates: vec![],
+                    intent: PipelineIntent::None,
+                });
             }
             let mut comp = composition.to_owned();
-            let mut last = PipelineUpdate { composition: comp.clone(), candidates: vec![], intent: PipelineIntent::None };
+            let mut last = PipelineUpdate {
+                composition: comp.clone(),
+                candidates: vec![],
+                intent: PipelineIntent::None,
+            };
             for ch in &mapped.characters {
-                let ke = KeyEvent { key: Key::Character(*ch), state: event.state };
+                let ke = KeyEvent {
+                    key: Key::Character(*ch),
+                    state: event.state,
+                };
                 last = self.apply_internal(&comp, &ke)?;
                 comp = last.composition.clone();
             }
@@ -154,22 +175,40 @@ impl InputPipeline for ComposablePipeline {
     }
 }
 impl ComposablePipeline {
-    fn apply_internal(&self, composition: &str, event: &KeyEvent) -> Result<PipelineUpdate, PipelineError> {
+    fn apply_internal(
+        &self,
+        composition: &str,
+        event: &KeyEvent,
+    ) -> Result<PipelineUpdate, PipelineError> {
         let mut proc = self.processor.lock();
         let proc_out = proc.process(composition, event)?;
         if proc_out.consumed {
-            return Ok(PipelineUpdate { composition: proc_out.composition, candidates: vec![], intent: proc_out.intent });
+            return Ok(PipelineUpdate {
+                composition: proc_out.composition,
+                candidates: vec![],
+                intent: proc_out.intent,
+            });
         }
         let segments = self.segmentor.segment(&proc_out.composition);
         let alternatives: Vec<Vec<CodeSegment>> = if let Some(n) = &self.normalizer {
             n.normalize_all(&segments)
-        } else { vec![segments] };
+        } else {
+            vec![segments]
+        };
         let mut candidates = proc_out.inject_candidates;
         for alt in &alternatives {
-            for t in &self.translators { candidates.extend(t.translate(alt)); }
+            for t in &self.translators {
+                candidates.extend(t.translate(alt));
+            }
         }
-        for f in &self.filters { candidates = f.filter(candidates); }
+        for f in &self.filters {
+            candidates = f.filter(candidates);
+        }
         candidates = self.ranker.rank(candidates);
-        Ok(PipelineUpdate { composition: proc_out.composition, candidates, intent: proc_out.intent })
+        Ok(PipelineUpdate {
+            composition: proc_out.composition,
+            candidates,
+            intent: proc_out.intent,
+        })
     }
 }

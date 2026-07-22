@@ -106,20 +106,21 @@ impl TieredIndex {
 
         all.sort_by_key(|(w, _)| std::cmp::Reverse(*w));
         let hash8 = self.source_hash.chars().take(8).collect::<String>();
-        all.into_iter().enumerate().map(|(idx, (_w, text))| Candidate {
-            id: CandidateId::new(idx as u64 + 1),
-            text,
-            annotation: Some(code.to_owned()),
-            source: format!("dict:{hash8}"),
-            is_emoji: false,
-        }).collect()
+        all.into_iter()
+            .enumerate()
+            .map(|(idx, (_w, text))| Candidate {
+                id: CandidateId::new(idx as u64 + 1),
+                text,
+                annotation: Some(code.to_owned()),
+                source: format!("dict:{hash8}"),
+                is_emoji: false,
+            })
+            .collect()
     }
 
     /// Prefix search: top `limit` entries across all codes matching `prefix`.
     pub fn query_prefix(&self, prefix: &str, limit: usize) -> Vec<Candidate> {
-        let start = self
-            .hot
-            .partition_point(|(c, _)| c.as_str() < prefix);
+        let start = self.hot.partition_point(|(c, _)| c.as_str() < prefix);
 
         let mut all = Vec::new();
         let mut seen = std::collections::HashSet::new();
