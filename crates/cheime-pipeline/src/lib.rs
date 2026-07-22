@@ -161,11 +161,13 @@ impl ComposablePipeline {
             return Ok(PipelineUpdate { composition: proc_out.composition, candidates: vec![], intent: proc_out.intent });
         }
         let segments = self.segmentor.segment(&proc_out.composition);
-        let variants: Vec<CodeSegment> = if let Some(n) = &self.normalizer {
+        let alternatives: Vec<Vec<CodeSegment>> = if let Some(n) = &self.normalizer {
             n.normalize_all(&segments)
-        } else { segments };
+        } else { vec![segments] };
         let mut candidates = proc_out.inject_candidates;
-        for t in &self.translators { candidates.extend(t.translate(&variants)); }
+        for alt in &alternatives {
+            for t in &self.translators { candidates.extend(t.translate(alt)); }
+        }
         for f in &self.filters { candidates = f.filter(candidates); }
         candidates = self.ranker.rank(candidates);
         Ok(PipelineUpdate { composition: proc_out.composition, candidates, intent: proc_out.intent })
