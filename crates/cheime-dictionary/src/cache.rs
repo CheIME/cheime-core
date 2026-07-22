@@ -280,6 +280,7 @@ impl std::error::Error for CacheError {}
 
 // ── Tests ─────────────────────────────────────────────────────────
 
+#[allow(clippy::cloned_ref_to_slice_refs)]
 #[cfg(test)]
 mod tests {
     use super::*;

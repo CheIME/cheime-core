@@ -1,3 +1,4 @@
+#![allow(clippy::clone_on_ref_ptr, clippy::needless_lifetimes)]
 #![forbid(unsafe_code)]
 
 pub mod body;

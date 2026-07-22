@@ -1,3 +1,4 @@
+#![allow(clippy::ptr_arg)]
 //! CheIME CLI — 雾凇词库 + 智能学习.
 //!
 //! Usage:
