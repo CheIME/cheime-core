@@ -1,3 +1,4 @@
+#![allow(clippy::tabs_in_doc_comments)]
 //! Emoji translator — first-class emoji candidate support.
 //!
 //! CheIME advantage: emoji is a dedicated Translator with keyword/pinyin
