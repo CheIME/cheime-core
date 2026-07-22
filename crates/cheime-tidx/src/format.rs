@@ -269,6 +269,7 @@ pub fn write_tidex(path: &Path, code_entries: &[(&str, &[(String, i32)])]) -> io
         "text_pool_off mismatch"
     );
     let mut written = std::collections::HashSet::new();
+    #[allow(clippy::needless_range_loop)]
     for i in 0..code_entries.len() {
         let (code, entries) = code_entries[i];
         if written.insert(code.to_string()) {
