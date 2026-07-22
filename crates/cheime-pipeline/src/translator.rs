@@ -5,7 +5,7 @@
 
 use crate::{CodeSegment, Translator};
 use cheime_dictionary::CompiledIndex;
-use cheime_model::Candidate;
+use cheime_model::{Candidate, CandidateId};
 use std::sync::Arc;
 
 /// Translates segments by querying a compiled dictionary index.
@@ -41,21 +41,52 @@ impl Translator for DictTranslator {
             1 => self.index.query(&code),
             _ => {
                 let results = self.index.query_prefix(&code, 10);
-                if results.is_empty() {
-                    // Fallback: query each segment independently (e.g. "ninininini" -> "你你你你你")
-                    let mut all = Vec::new();
-                    for seg in segments {
-                        let seg_code = &seg.code;
-                        if seg_code.len() == 1 {
-                            all.extend(self.index.query_prefix(seg_code, 5));
-                        } else {
-                            all.extend(self.index.query(seg_code));
+                if !results.is_empty() {
+                    return results;
+                }
+                // Fallback: query each segment independently, then concatenate top results
+                let mut per_seg: Vec<Vec<Candidate>> = Vec::with_capacity(segments.len());
+                for seg in segments {
+                    let seg_code = &seg.code;
+                    let seg_results = if seg_code.len() == 1 {
+                        self.index.query_prefix(seg_code, 5)
+                    } else {
+                        self.index.query(seg_code)
+                    };
+                    if seg_results.is_empty() {
+                        return vec![]; // segment can't resolve → give up
+                    }
+                    per_seg.push(seg_results);
+                }
+                // Produce concatenated candidates: take top-N from each segment
+                // and generate cross-product combinations (up to limit)
+                let limit = 10;
+                let mut combined = Vec::new();
+                // Simple approach: take top-1 from each segment and concatenate
+                let concat_text: String = per_seg.iter()
+                    .map(|r| r[0].text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("");
+                if !concat_text.is_empty() {
+                    combined.push(Candidate {
+                        id: CandidateId::new(1),
+                        text: concat_text,
+                        annotation: None,
+                        source: "dict:concat".to_string(),
+                        is_emoji: false,
+                    });
+                }
+                // Also include individual segment results as alternatives
+                for seg_results in &per_seg {
+                    for c in seg_results {
+                        if combined.len() >= limit { break; }
+                        if !combined.iter().any(|existing| existing.text == c.text) {
+                            combined.push(c.clone());
                         }
                     }
-                    all
-                } else {
-                    results
+                    if combined.len() >= limit { break; }
                 }
+                combined
             }
         }
     }

@@ -227,11 +227,16 @@ impl<P: InputPipeline> Session<P> {
     // ── Commit / Cancel ───────────────────────────────────────────────
 
     fn propose_commit(&mut self) -> Result<Vec<EngineMessage>, SessionError> {
+        // Prefer highlighted candidate; fall back to raw composition (predict).
         let text = self
             .candidates
             .get(self.highlighted_idx)
             .map(|c| c.text.clone())
-            .ok_or(SessionError::NoCandidate)?;
+            .unwrap_or_else(|| self.composition.clone());
+        if text.is_empty() {
+            // Nothing to commit — just cancel the composition silently.
+            return self.propose_cancel();
+        }
         let action = self.new_action(
             PlatformActionKind::Commit { text },
             PendingEffect::ClearComposition,
