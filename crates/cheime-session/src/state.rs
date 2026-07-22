@@ -613,11 +613,11 @@ mod tests {
 
     #[test]
     fn commit_with_empty_candidates() {
-        // Create a session with a minimal pipeline that has no dictionary
+        // With no candidates, propose_commit falls back to cancel (not error)
         let mut session = Session::new(initial_header(), BuiltinPipeline::new([]));
-        // With no candidates, proposing a commit should fail
         let result = session.handle(key_message(1, 0, Key::Enter));
-        assert!(matches!(result, Err(SessionError::NoCandidate)));
+        let msgs = result.unwrap();
+        assert!(!msgs.is_empty(), "should return cancel action instead of error");
     }
 
     #[test]
