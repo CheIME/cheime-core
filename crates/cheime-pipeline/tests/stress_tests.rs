@@ -427,3 +427,60 @@ fn fuzzy_plus_abbreviation_zg_matches_zhongguo() {
         "fuzzy+abbreviation zg should produce zhongguo, got top5: {:?}",
         final_candidates.iter().take(5).map(|c| &c.text).collect::<Vec<_>>());
 }
+
+// ── Config behavior tests ───────────────────────────────────────────
+
+#[test]
+fn fuzzy_disabled_no_zhong_for_zongguo() {
+    let config: SchemaConfig = serde_yaml::from_str(
+        "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  fuzzy_pinyin:\n    enabled: false\n"
+    ).unwrap();
+    let p = PipelineFactory::build(&config, None, Some(real_dict().clone()), None).unwrap();
+
+    let mut comp = String::new();
+    for ch in "zongguo".chars() {
+        let update = p.apply(&comp, &key(ch)).unwrap();
+        comp = update.composition;
+    }
+    let final_update = p.apply(&comp, &key('a')).unwrap();
+    assert!(!final_update.candidates.iter().any(|c| c.text.starts_with("\u{4e2d}\u{56fd}")),
+        "with fuzzy disabled, zongguo should NOT produce zhongguo candidates");
+}
+
+#[test]
+fn abbreviation_disabled_no_nihao_for_nh() {
+    let config: SchemaConfig = serde_yaml::from_str(
+        "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  abbreviation:\n    enabled: false\n"
+    ).unwrap();
+    let p = PipelineFactory::build(&config, None, Some(real_dict().clone()), None).unwrap();
+
+    let mut comp = String::new();
+    let mut last_update = None;
+    for ch in "nh".chars() {
+        let update = p.apply(&comp, &key(ch)).unwrap();
+        comp = update.composition.clone();
+        last_update = Some(update);
+    }
+    let final_candidates = &last_update.unwrap().candidates;
+    assert!(!final_candidates.iter().any(|c| c.text == "\u{4f60}\u{597d}"),
+        "with abbreviation disabled, nh should NOT produce nihao");
+}
+
+#[test]
+fn fuzzy_specific_rules_only_zh_z() {
+    let config: SchemaConfig = serde_yaml::from_str(
+        "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  fuzzy_pinyin:\n    enabled: true\n    rules:\n      - z_zh\n"
+    ).unwrap();
+    let p = PipelineFactory::build(&config, None, Some(real_dict().clone()), None).unwrap();
+
+    // zongguo with only z_zh rule: zong → zhong
+    let mut comp = String::new();
+    for ch in "zongguo".chars() {
+        let update = p.apply(&comp, &key(ch)).unwrap();
+        comp = update.composition;
+    }
+    let final_update = p.apply(&comp, &key('a')).unwrap();
+    assert!(final_update.candidates.iter().any(|c| c.text.starts_with("\u{4e2d}\u{56fd}")),
+        "z_zh rule should make zongguo produce zhongguo, got top5: {:?}",
+        final_update.candidates.iter().take(5).map(|c| &c.text).collect::<Vec<_>>());
+}

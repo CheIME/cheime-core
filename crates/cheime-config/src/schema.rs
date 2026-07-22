@@ -72,6 +72,9 @@ pub struct EngineConfig {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fuzzy_pinyin: Option<FuzzyPinyinConfig>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub abbreviation: Option<AbbreviationConfig>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -82,6 +85,13 @@ pub struct FuzzyPinyinConfig {
     /// Specific rules to enable (e.g. ["zh_z", "n_l"]). Empty = all standard rules.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AbbreviationConfig {
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 // ── Processor configs ───────────────────────────────────────────────
@@ -623,4 +633,127 @@ engine:
         let result: Result<SchemaConfig, _> = serde_yaml::from_str(yaml);
         assert!(result.is_err());
     }
+
+
+    #[test]
+    fn parse_fuzzy_pinyin_enabled() {
+        let yaml = r#"
+schema_version: 1
+engine:
+  segmentors:
+    - type: pinyin_syllable
+  fuzzy_pinyin:
+    enabled: true
+"#;
+        let config: SchemaConfig = serde_yaml::from_str(yaml).unwrap();
+        let fuzzy = config.engine.fuzzy_pinyin.unwrap();
+        assert!(fuzzy.enabled);
+        assert!(fuzzy.rules.is_empty());
+    }
+
+    #[test]
+    fn parse_fuzzy_pinyin_specific_rules() {
+        let yaml = r#"
+schema_version: 1
+engine:
+  segmentors:
+    - type: pinyin_syllable
+  fuzzy_pinyin:
+    enabled: true
+    rules: ["zh_z", "n_l"]
+"#;
+        let config: SchemaConfig = serde_yaml::from_str(yaml).unwrap();
+        let fuzzy = config.engine.fuzzy_pinyin.unwrap();
+        assert!(fuzzy.enabled);
+        assert_eq!(fuzzy.rules, vec!["zh_z", "n_l"]);
+    }
+
+    #[test]
+    fn parse_fuzzy_pinyin_disabled() {
+        let yaml = r#"
+schema_version: 1
+engine:
+  segmentors:
+    - type: pinyin_syllable
+  fuzzy_pinyin:
+    enabled: false
+"#;
+        let config: SchemaConfig = serde_yaml::from_str(yaml).unwrap();
+        let fuzzy = config.engine.fuzzy_pinyin.unwrap();
+        assert!(!fuzzy.enabled);
+    }
+
+    #[test]
+    fn parse_abbreviation_enabled() {
+        let yaml = r#"
+schema_version: 1
+engine:
+  segmentors:
+    - type: pinyin_syllable
+  abbreviation:
+    enabled: true
+"#;
+        let config: SchemaConfig = serde_yaml::from_str(yaml).unwrap();
+        let abbrev = config.engine.abbreviation.unwrap();
+        assert!(abbrev.enabled);
+    }
+
+    #[test]
+    fn parse_abbreviation_disabled() {
+        let yaml = r#"
+schema_version: 1
+engine:
+  segmentors:
+    - type: pinyin_syllable
+  abbreviation:
+    enabled: false
+"#;
+        let config: SchemaConfig = serde_yaml::from_str(yaml).unwrap();
+        let abbrev = config.engine.abbreviation.unwrap();
+        assert!(!abbrev.enabled);
+    }
+
+    #[test]
+    fn parse_no_fuzzy_no_abbreviation() {
+        let yaml = r#"
+schema_version: 1
+engine:
+  segmentors:
+    - type: pinyin_syllable
+"#;
+        let config: SchemaConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.engine.fuzzy_pinyin.is_none());
+        assert!(config.engine.abbreviation.is_none());
+    }
+
+    #[test]
+    fn fuzzy_pinyin_unknown_field_rejected() {
+        let yaml = r#"
+schema_version: 1
+engine:
+  segmentors:
+    - type: pinyin_syllable
+  fuzzy_pinyin:
+    enabled: true
+    bogus_field: true
+"#;
+        let result: Result<SchemaConfig, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn abbreviation_unknown_field_rejected() {
+        let yaml = r#"
+schema_version: 1
+engine:
+  segmentors:
+    - type: pinyin_syllable
+  abbreviation:
+    enabled: true
+    bogus_field: true
+"#;
+        let result: Result<SchemaConfig, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err());
+    }
+
 }

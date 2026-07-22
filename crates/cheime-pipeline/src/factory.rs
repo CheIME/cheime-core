@@ -49,8 +49,12 @@ impl PipelineFactory {
 
         let mut normalizers: Vec<Box<dyn crate::normalizer::CodeNormalizer>> = Vec::new();
 
-        // Abbreviation normalizer (auto-enabled for pinyin segmentor)
-        if e.segmentors.iter().any(|s| matches!(s, SegmentorConfig::PinyinSyllable)) {
+        // Abbreviation normalizer (configurable, auto-enabled for pinyin segmentor)
+        let abbrev_enabled = e.abbreviation.as_ref().map_or(
+            e.segmentors.iter().any(|s| matches!(s, SegmentorConfig::PinyinSyllable)),
+            |a| a.enabled,
+        );
+        if abbrev_enabled {
             normalizers.push(Box::new(AbbreviationNormalizer::new()));
         }
 
