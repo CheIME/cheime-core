@@ -60,7 +60,9 @@ impl Translator for DictTranslator {
                 let limit = 10;
                 let mut combined = Vec::new();
                 // Simple approach: take top-1 from each segment and concatenate
-                let concat_text: String = per_seg.iter().zip(segments.iter())
+                let concat_text: String = per_seg
+                    .iter()
+                    .zip(segments.iter())
                     .map(|(results, seg)| {
                         if results.is_empty() {
                             seg.code.as_str() // raw code as fallback
@@ -82,12 +84,16 @@ impl Translator for DictTranslator {
                 // Also include individual segment results as alternatives
                 for seg_results in &per_seg {
                     for c in seg_results {
-                        if combined.len() >= limit { break; }
+                        if combined.len() >= limit {
+                            break;
+                        }
                         if !combined.iter().any(|existing| existing.text == c.text) {
                             combined.push(c.clone());
                         }
                     }
-                    if combined.len() >= limit { break; }
+                    if combined.len() >= limit {
+                        break;
+                    }
                 }
                 combined
             }

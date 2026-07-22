@@ -623,7 +623,10 @@ mod tests {
         let mut session = Session::new(initial_header(), BuiltinPipeline::new([]));
         let result = session.handle(key_message(1, 0, Key::Enter));
         let msgs = result.unwrap();
-        assert!(!msgs.is_empty(), "should return cancel action instead of error");
+        assert!(
+            !msgs.is_empty(),
+            "should return cancel action instead of error"
+        );
     }
 
     #[test]
