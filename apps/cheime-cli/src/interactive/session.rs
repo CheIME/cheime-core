@@ -209,3 +209,11 @@ fn next_event_sequence(sequence: EventSequence) -> Result<EventSequence, Session
 #[cfg(test)]
 #[path = "session_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "session_dispatch_tests.rs"]
+mod dispatch_tests;
+
+#[cfg(test)]
+#[path = "session_review_tests.rs"]
+mod review_tests;
