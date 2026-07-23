@@ -217,3 +217,15 @@ mod dispatch_tests;
 #[cfg(test)]
 #[path = "session_review_tests.rs"]
 mod review_tests;
+
+#[cfg(test)]
+#[path = "session_cursor_tests.rs"]
+mod cursor_tests;
+
+#[cfg(test)]
+#[path = "session_bound_tests.rs"]
+mod bound_tests;
+
+#[cfg(test)]
+#[path = "session_terminal_tests.rs"]
+mod terminal_tests;
