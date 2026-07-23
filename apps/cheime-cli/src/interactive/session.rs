@@ -6,6 +6,8 @@ use std::fmt;
 
 use super::log::{EventSequence, ProtocolEvent, RunId};
 
+mod drain;
+
 pub(super) struct SessionDriver<P> {
     session: Session<P>,
     run_id: RunId,
@@ -229,3 +231,11 @@ mod bound_tests;
 #[cfg(test)]
 #[path = "session_terminal_tests.rs"]
 mod terminal_tests;
+
+#[cfg(test)]
+#[path = "session_drain_commit_tests.rs"]
+mod drain_commit_tests;
+
+#[cfg(test)]
+#[path = "session_drain_action_tests.rs"]
+mod drain_action_tests;
