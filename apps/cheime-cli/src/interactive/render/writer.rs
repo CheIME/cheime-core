@@ -12,7 +12,7 @@ use std::io::{self, Write};
 /// Each line is positioned at `(0, row)`, printed, and cleared to end-of-line.
 /// After all lines, the cursor moves to the frame-specified position (if any),
 /// otherwise to `(0, 0)`.
-pub(super) fn render_frame<W: Write>(writer: &mut W, frame: &Frame) -> io::Result<()> {
+pub(crate) fn render_frame<W: Write>(writer: &mut W, frame: &Frame) -> io::Result<()> {
     for (row, line) in frame.lines.iter().enumerate() {
         writer.queue(MoveTo(0, row as u16))?;
         writer.queue(Print(line.as_str()))?;

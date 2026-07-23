@@ -10,14 +10,14 @@ use std::path::Path;
 
 // ── Frame ─────────────────────────────────────────────────────────────────
 
-pub(super) struct Frame {
+pub(crate) struct Frame {
     pub(super) lines: Vec<String>,
     pub(super) cursor: Option<(u16, u16)>,
 }
 
 // ── entry point ───────────────────────────────────────────────────────────
 
-pub(super) fn build_frame(
+pub(crate) fn build_frame(
     state: &AppState,
     width: u16,
     height: u16,

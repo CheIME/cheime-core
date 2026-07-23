@@ -40,11 +40,19 @@ impl Translator for DictTranslator {
             1 if code.len() == 1 => self.index.query_prefix(&code, 100),
             1 => self.index.query(&code),
             _ => {
-                let results = self.index.query_prefix(&code, 10);
-                if !results.is_empty() {
-                    return results;
+                let mut results = self.index.query(&code);
+                for candidate in &mut results {
+                    candidate.source = format!("dict:exact:{}", candidate.source);
                 }
-                // Fallback: query each segment independently, then concatenate top results
+                for candidate in self.index.query_prefix(&code, 10) {
+                    if !results
+                        .iter()
+                        .any(|existing| existing.text == candidate.text)
+                    {
+                        results.push(candidate);
+                    }
+                }
+
                 let mut per_seg: Vec<Vec<Candidate>> = Vec::with_capacity(segments.len());
                 for seg in segments {
                     let seg_code = &seg.code;
@@ -59,7 +67,6 @@ impl Translator for DictTranslator {
                 // and generate cross-product combinations (up to limit)
                 let limit = 10;
                 let mut combined = Vec::new();
-                // Simple approach: take top-1 from each segment and concatenate
                 let concat_text: String = per_seg
                     .iter()
                     .zip(segments.iter())
@@ -81,7 +88,6 @@ impl Translator for DictTranslator {
                         is_emoji: false,
                     });
                 }
-                // Also include individual segment results as alternatives
                 for seg_results in &per_seg {
                     for c in seg_results {
                         if combined.len() >= limit {
@@ -95,7 +101,15 @@ impl Translator for DictTranslator {
                         break;
                     }
                 }
-                combined
+                for candidate in combined {
+                    if !results
+                        .iter()
+                        .any(|existing| existing.text == candidate.text)
+                    {
+                        results.push(candidate);
+                    }
+                }
+                results
             }
         }
     }
@@ -174,50 +188,5 @@ impl Translator for UserDictTranslator {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use cheime_dictionary::{CompiledIndex, DictEntry};
-    use cheime_model::DeploymentGeneration;
-    use std::sync::Arc;
-
-    fn test_index() -> Arc<CompiledIndex> {
-        let entries = vec![
-            DictEntry {
-                text: "你".into(),
-                code: "ni".into(),
-                weight: Some(100),
-                stem: None,
-            },
-            DictEntry {
-                text: "好".into(),
-                code: "hao".into(),
-                weight: Some(100),
-                stem: None,
-            },
-        ];
-        Arc::new(CompiledIndex::build(entries, DeploymentGeneration::new(1)))
-    }
-
-    #[test]
-    fn dict_translator_returns_candidates() {
-        let translator = DictTranslator::new("test", test_index());
-        let segment = CodeSegment {
-            code: "ni".into(),
-            tag: "pinyin".into(),
-        };
-        let candidates = translator.translate(&[segment]);
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].text, "你");
-    }
-
-    #[test]
-    fn passthrough_returns_code_as_text() {
-        let t = PassthroughTranslator;
-        let seg = CodeSegment {
-            code: "hello".into(),
-            tag: "unknown".into(),
-        };
-        let candidates = t.translate(&[seg]);
-        assert_eq!(candidates[0].text, "hello");
-    }
-}
+#[path = "translator_tests.rs"]
+mod tests;

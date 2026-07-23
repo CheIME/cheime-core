@@ -84,7 +84,6 @@ pub struct FuzzyPinyinConfig {
     pub rules: Vec<String>,
 }
 
-
 // ── Processor configs ───────────────────────────────────────────────
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -280,7 +279,9 @@ pub struct EmojiTranslatorConfig {
     pub emoji_data: String,
 }
 
-fn default_emoji_data() -> String { String::from("data/emoji.txt") }
+fn default_emoji_data() -> String {
+    String::from("data/emoji.txt")
+}
 
 // ── Filter configs ──────────────────────────────────────────────────
 

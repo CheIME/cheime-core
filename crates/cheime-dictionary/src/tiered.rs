@@ -104,7 +104,7 @@ impl TieredIndex {
             }
         }
 
-        all.sort_by_key(|(w, _)| std::cmp::Reverse(*w));
+        all.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
         let hash8 = self.source_hash.chars().take(8).collect::<String>();
         all.into_iter()
             .enumerate()
@@ -146,7 +146,7 @@ impl TieredIndex {
             }
         }
 
-        all.sort_by_key(|(w, _)| std::cmp::Reverse(*w));
+        all.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
         all.truncate(limit);
 
         let hash8 = self.source_hash.chars().take(8).collect::<String>();

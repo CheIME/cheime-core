@@ -21,11 +21,6 @@ engine:
     enabled: true
     rules: []  # empty = all standard rules; or specify e.g. ["zh_z", "n_l"]
 
-  # Abbreviation normalization (nh→nihao, zg→zhongguo)
-  # Auto-enabled for pinyin segmentor; set enabled: false to disable
-  abbreviation:
-    enabled: true
-
   filters:
     - type: simplifier
       option_name: s2t

@@ -7,15 +7,15 @@
 
 use cheime_dictionary::{parse_body, CompiledIndex, DictColumn};
 use cheime_model::{
-    CORE_PROTOCOL_VERSION, ClientInstanceId, DeploymentGeneration, Key, KeyEvent,
-    KeyState, PlatformActionKind, Revision, Sequence, SessionEpoch, SessionId,
+    CORE_PROTOCOL_VERSION, ClientInstanceId, DeploymentGeneration,
+    PlatformActionKind, Revision, Sequence, SessionEpoch, SessionId,
 };
 use cheime_pipeline::factory::PipelineFactory;
 use cheime_protocol::{EngineMessage, FrontendMessage, MessageHeader};
 use cheime_session::Session;
 use cheime_user_data::UserStore;
 use parking_lot::Mutex;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -42,70 +42,37 @@ fn main() {
         deployment: DeploymentGeneration::new(1),
     };
 
-    let mut session = Session::new(header, pipeline);
+    let session = Session::new(header, pipeline);
 
     if json_mode {
-        run_json(&mut session, store, &db_path);
+        run_json(session, store, &db_path);
     } else {
-        run_interactive(&mut session, store, &db_path);
+        run_interactive(session, store, &db_path);
     }
 }
 
-// ── Interactive mode ────────────────────────────────────────────────
+// ── Interactive mode ────────────────────────────────────────────────────────
 
-fn run_interactive(session: &mut Session<impl cheime_pipeline::InputPipeline>, store: Arc<Mutex<UserStore>>, db_path: &PathBuf) {
-    println!("CheIME CLI — 雾凇词库 + 智能学习");
-    println!("DB: {}\n", db_path.display());
-    let mut seq: u64 = 0;
-
-    let stdin = io::stdin();
-    for line in stdin.lock().lines() {
-        let Ok(line) = line else { break };
-        if line.is_empty() { continue; }
-        for ch in line.chars() {
-            if ch == '\x1b' { return; }
-            seq += 1;
-            let key = match ch {
-                '\x08' | '\x7f' => Key::Backspace,
-                '\r' | '\n' | ' ' => Key::Enter,
-                c if c.is_ascii_lowercase() => Key::Character(c),
-                _ => continue,
-            };
-            let msg = make_key_msg(seq, key);
-            match session.handle(msg) {
-                Ok(output) => handle_output_interactive(&output, &store),
-                Err(e) => eprintln!("\nError: {e}"),
-            }
-        }
+fn run_interactive(
+    session: Session<impl cheime_pipeline::InputPipeline>,
+    store: Arc<Mutex<UserStore>>,
+    data_dir: &PathBuf,
+) {
+    match interactive::tui::run_interactive(session, store, data_dir) {
+        Ok(()) => {}
+        Err(e) => eprintln!("terminal error: {e}"),
     }
 }
 
-fn handle_output_interactive(output: &[EngineMessage], store: &Arc<Mutex<UserStore>>) {
-    for m in output {
-        match m {
-            EngineMessage::CandidateSnapshot { snapshot, .. } => {
-                print!("\r\x1b[K");
-                if !snapshot.preedit.is_empty() { print!("{} ", snapshot.preedit); }
-                for (i, c) in snapshot.candidates.iter().enumerate() {
-                    let mark = if Some(c.id) == snapshot.highlighted { ">" } else { " " };
-                    print!("{}{}.{} ", mark, i + 1, c.text);
-                }
-                io::stdout().flush().ok();
-            }
-            EngineMessage::PlatformAction { action, .. } => {
-                if let PlatformActionKind::Commit { text } = &action.kind {
-                    println!("\n\x1b[32m→ {}\x1b[0m", text);
-                    store.lock().commit_pending(text, "", "quanpin");
-                }
-            }
-            _ => {}
-        }
-    }
-}
+// ── JSON I/O mode ───────────────────────────────────────────────────────────
 
-// ── JSON I/O mode ───────────────────────────────────────────────────
+fn run_json(
+    mut session: Session<impl cheime_pipeline::InputPipeline>,
+    store: Arc<Mutex<UserStore>>,
+    db_path: &PathBuf,
+) {
+    use cheime_model::KeyEvent;
 
-fn run_json(session: &mut Session<impl cheime_pipeline::InputPipeline>, store: Arc<Mutex<UserStore>>, db_path: &PathBuf) {
     eprintln!("[cheime] JSON mode — {} entries loaded", 539071);
     eprintln!("[cheime] DB: {}", db_path.display());
     let mut seq: u64 = 0;
@@ -125,9 +92,12 @@ fn run_json(session: &mut Session<impl cheime_pipeline::InputPipeline>, store: A
         };
         let msg = FrontendMessage::KeyCommand {
             header: MessageHeader {
-                protocol_version: CORE_PROTOCOL_VERSION, client: ClientInstanceId::new(1),
-                session: SessionId::new(1), epoch: SessionEpoch::new(1),
-                sequence: Sequence::new(seq), revision: Revision::new(0),
+                protocol_version: CORE_PROTOCOL_VERSION,
+                client: ClientInstanceId::new(1),
+                session: SessionId::new(1),
+                epoch: SessionEpoch::new(1),
+                sequence: Sequence::new(seq),
+                revision: Revision::new(0),
                 deployment: DeploymentGeneration::new(1),
             },
             event: key,
@@ -135,7 +105,6 @@ fn run_json(session: &mut Session<impl cheime_pipeline::InputPipeline>, store: A
         match session.handle(msg) {
             Ok(output) => {
                 for m in &output {
-                    // Commit learns are still applied through the store
                     if let EngineMessage::PlatformAction { action, .. } = m {
                         if let PlatformActionKind::Commit { text } = &action.kind {
                             store.lock().commit_pending(text, "", "quanpin");
@@ -148,18 +117,6 @@ fn run_json(session: &mut Session<impl cheime_pipeline::InputPipeline>, store: A
             }
             Err(e) => eprintln!("[cheime] error: {e}"),
         }
-    }
-}
-
-fn make_key_msg(seq: u64, key: Key) -> FrontendMessage {
-    FrontendMessage::KeyCommand {
-        header: MessageHeader {
-            protocol_version: CORE_PROTOCOL_VERSION, client: ClientInstanceId::new(1),
-            session: SessionId::new(1), epoch: SessionEpoch::new(1),
-            sequence: Sequence::new(seq), revision: Revision::new(0),
-            deployment: DeploymentGeneration::new(1),
-        },
-        event: KeyEvent { key, state: KeyState::default() },
     }
 }
 

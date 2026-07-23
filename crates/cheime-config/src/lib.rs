@@ -17,7 +17,7 @@ pub use layered::{LayeredConfig, LayeredSchema};
 pub use merge::ConfigLoader;
 pub use profile::UserProfile;
 pub use schema::{
-    AbbreviationConfig, EngineConfig, FuzzyPinyinConfig, MenuConfig, PunctuatorConfig,
-    SchemaConfig, SpellerAlgebra, SpellerConfig, SwitchConfig, SwitchGroup,
+    EngineConfig, FuzzyPinyinConfig, MenuConfig, PunctuatorConfig, SchemaConfig, SpellerAlgebra,
+    SpellerConfig, SwitchConfig, SwitchGroup,
 };
 pub use state::RuntimeState;

@@ -1,5 +1,6 @@
 use super::app::{AppState, LocalAction};
 use cheime_model::{Key, UiCommand};
+use crossterm::event::{KeyCode, KeyEvent as CtKeyEvent, KeyEventKind, KeyModifiers as CtModifiers};
 
 const NO_HIGHLIGHT_STATUS: &str = "candidate selection requires a highlighted candidate";
 
@@ -56,6 +57,48 @@ pub(super) enum SessionCommand {
     Key(Key),
     Ui(UiCommand),
     Close,
+}
+
+// ── crossterm KeyEvent → InputEvent converter ─────────────────────────────
+
+/// Translate a crossterm `KeyEvent` into our platform-neutral `InputEvent`.
+/// Returns `None` for keys that have no meaningful interactive mapping
+/// (e.g. raw function keys beyond F2).
+pub(super) fn from_crossterm_key(ct: CtKeyEvent) -> Option<InputEvent> {
+    let key = match ct.code {
+        KeyCode::Char(' ') => InputKey::Space,
+        KeyCode::Char(c) => InputKey::Character(c),
+        KeyCode::Backspace => InputKey::Backspace,
+        KeyCode::Delete => InputKey::Delete,
+        KeyCode::Enter => InputKey::Enter,
+        KeyCode::Esc => InputKey::Escape,
+        KeyCode::Left => InputKey::Left,
+        KeyCode::Right => InputKey::Right,
+        KeyCode::Up => InputKey::Up,
+        KeyCode::Down => InputKey::Down,
+        KeyCode::Home => InputKey::Home,
+        KeyCode::End => InputKey::End,
+        KeyCode::PageUp => InputKey::PageUp,
+        KeyCode::PageDown => InputKey::PageDown,
+        KeyCode::F(2) => InputKey::F2,
+        _ => return None,
+    };
+
+    let kind = match ct.kind {
+        KeyEventKind::Press => InputKind::Press,
+        KeyEventKind::Repeat => InputKind::Repeat,
+        KeyEventKind::Release => InputKind::Release,
+    };
+
+    Some(InputEvent {
+        key,
+        modifiers: InputModifiers {
+            shift: ct.modifiers.contains(CtModifiers::SHIFT),
+            control: ct.modifiers.contains(CtModifiers::CONTROL),
+            alt: ct.modifiers.contains(CtModifiers::ALT),
+        },
+        kind,
+    })
 }
 
 pub(super) fn route_key(state: &AppState, event: InputEvent) -> AppAction {
@@ -186,3 +229,5 @@ mod candidate_tests;
 mod input_tests;
 #[cfg(test)]
 mod modifier_tests;
+#[cfg(test)]
+mod crossterm_tests;

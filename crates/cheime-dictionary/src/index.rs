@@ -109,7 +109,13 @@ impl MemoryIndex {
                 heap.push((w, text.clone(), code.clone()));
                 if heap.len() > limit * 2 {
                     let mut drained: Vec<_> = heap.drain().collect();
-                    drained.sort_by_key(|(w, _, _)| std::cmp::Reverse(*w));
+                    drained.sort_by(|left, right| {
+                        right
+                            .0
+                            .cmp(&left.0)
+                            .then_with(|| left.1.cmp(&right.1))
+                            .then_with(|| left.2.cmp(&right.2))
+                    });
                     drained.truncate(limit);
                     heap = drained.into_iter().collect();
                 }
@@ -117,7 +123,13 @@ impl MemoryIndex {
         }
 
         let mut results: Vec<_> = heap.into_iter().collect();
-        results.sort_by_key(|(w, _, _)| std::cmp::Reverse(*w));
+        results.sort_by(|left, right| {
+            right
+                .0
+                .cmp(&left.0)
+                .then_with(|| left.1.cmp(&right.1))
+                .then_with(|| left.2.cmp(&right.2))
+        });
         results.truncate(limit);
 
         let hash8 = self.source_hash.chars().take(8).collect::<String>();
@@ -230,79 +242,6 @@ impl MemoryIndex {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn entry(text: &str, code: &str, weight: i64) -> DictEntry {
-        DictEntry {
-            text: text.into(),
-            code: code.into(),
-            weight: Some(weight),
-            stem: None,
-        }
-    }
-
-    #[test]
-    fn sorts_by_weight_desc_then_text_asc() {
-        let entries = vec![
-            entry("你", "ni", 100),
-            entry("呢", "ni", 90),
-            entry("拟", "ni", 80),
-        ];
-        let idx = CompiledIndex::build(entries, DeploymentGeneration::new(1));
-        let candidates = idx.query("ni");
-        assert_eq!(candidates[0].text, "你"); // weight 100 highest
-        assert_eq!(candidates[1].text, "呢"); // weight 90
-        assert_eq!(candidates[2].text, "拟"); // weight 80
-    }
-
-    #[test]
-    fn prefix_search_ni_matches_ni_and_ni_hao() {
-        let entries = vec![
-            entry("你", "ni", 100),
-            entry("你好", "ni hao", 200),
-            entry("那里", "na li", 50),
-        ];
-        let idx = CompiledIndex::build(entries, DeploymentGeneration::new(1));
-        let cs = idx.query_prefix("ni", 10);
-        assert_eq!(cs.len(), 2); // "ni" + "ni hao" = 2
-        assert!(cs.iter().any(|c| c.text == "你"));
-        assert!(cs.iter().any(|c| c.text == "你好"));
-        // Should NOT contain "na li" entries
-        assert!(!cs.iter().any(|c| c.text == "那里"));
-    }
-
-    #[test]
-    fn prefix_search_n_matches_multiple_initials() {
-        let entries = vec![
-            entry("那", "na", 100),
-            entry("你", "ni", 90),
-            entry("女", "nv", 80),
-            entry("年", "nian", 70),
-        ];
-        let idx = CompiledIndex::build(entries, DeploymentGeneration::new(1));
-        let cs = idx.query_prefix("n", 10);
-        assert_eq!(cs.len(), 4);
-        assert_eq!(cs[0].text, "那"); // highest weight
-    }
-
-    #[test]
-    fn assigns_stable_candidate_ids() {
-        let entries = vec![entry("你", "ni", 100), entry("好", "hao", 100)];
-        let idx1 = CompiledIndex::build(entries.clone(), DeploymentGeneration::new(1));
-        let idx2 = CompiledIndex::build(entries, DeploymentGeneration::new(1));
-        assert_eq!(idx1.query("ni")[0].id, idx2.query("ni")[0].id);
-    }
-
-    #[test]
-    fn empty_query_returns_empty() {
-        let idx = CompiledIndex::build(vec![], DeploymentGeneration::new(1));
-        assert!(idx.query("nonexistent").is_empty());
-        assert!(idx.query_prefix("x", 10).is_empty());
-    }
-}
+#[path = "index_tests.rs"]
+mod tests;
