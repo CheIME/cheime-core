@@ -19,5 +19,10 @@ pub(super) fn truncate_columns(text: &str, max_columns: usize) -> String {
     text[..end].to_owned()
 }
 
+mod frame;
+
+#[cfg(test)]
+mod frame_tests;
+
 #[cfg(test)]
 mod render_tests;
