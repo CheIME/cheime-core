@@ -19,6 +19,8 @@ use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+mod interactive;
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let json_mode = args.iter().any(|a| a == "--json");
