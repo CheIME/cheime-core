@@ -2,8 +2,21 @@ use super::{SessionDispatchError, SessionDriver};
 use crate::interactive::app::{AppState, PlatformActionApplication};
 use cheime_pipeline::InputPipeline;
 use cheime_protocol::{EngineMessage, FrontendMessage};
+use cheime_user_data::UserStore;
 use chrono::{DateTime, Utc};
 use std::collections::VecDeque;
+
+/// The interactive state and learning store mutated by one drain.
+pub(in crate::interactive) struct SessionApplicationContext<'a> {
+    state: &'a mut AppState,
+    store: &'a mut UserStore,
+}
+
+impl<'a> SessionApplicationContext<'a> {
+    pub(in crate::interactive) fn new(state: &'a mut AppState, store: &'a mut UserStore) -> Self {
+        Self { state, store }
+    }
+}
 
 #[derive(Debug)]
 pub(in crate::interactive) struct SessionApplicationDispatch {
@@ -17,12 +30,13 @@ where
     P: InputPipeline,
 {
     /// Sends one frontend message and drains every resulting platform action.
-    pub(super) fn send_and_apply_at(
+    pub(in crate::interactive) fn send_and_apply_at(
         &mut self,
         message: FrontendMessage,
         timestamp: DateTime<Utc>,
-        state: &mut AppState,
+        context: SessionApplicationContext<'_>,
     ) -> Result<SessionApplicationDispatch, SessionDispatchError> {
+        let SessionApplicationContext { state, store } = context;
         let initial = self.send_at(message, timestamp.clone())?;
         let mut queue = VecDeque::from(initial.messages);
         let mut messages = Vec::new();
@@ -46,6 +60,12 @@ where
                     let response = self.send_at(acknowledgement, timestamp.clone())?;
                     queue.extend(response.messages);
                     events.extend(response.events);
+                    match &application {
+                        PlatformActionApplication::NoDocumentChange { .. } => {}
+                        PlatformActionApplication::Committed { text, .. } => {
+                            store.commit_pending(text, "", "quanpin");
+                        }
+                    }
                     applications.push(application);
                 }
                 EngineMessage::SessionOpened { .. }

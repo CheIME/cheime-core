@@ -8,11 +8,12 @@ use cheime_protocol::{EngineMessage, FrontendMessage, MessageHeader};
 use cheime_session::Session;
 use chrono::{DateTime, Utc};
 
-use super::SessionDriver;
+use super::{SessionApplicationContext, SessionDriver};
 use crate::interactive::{
     app::{AppState, LocalAction, PlatformActionApplication},
     log::{EventDirection, EventSequence, ProtocolEventPayload, RunId},
 };
+use cheime_user_data::UserStore;
 
 fn header(sequence: u64, revision: u64) -> MessageHeader {
     MessageHeader {
@@ -46,12 +47,17 @@ fn drains_set_preedit_action_and_acknowledges_without_engine_output() {
     let session = Session::new(header(0, 0), BuiltinPipeline::new([]));
     let mut driver = SessionDriver::new(session, RunId::new("run-drain-preedit"));
     let mut state = AppState::new();
+    let mut store = UserStore::new("drain-preedit");
     state.apply_local(LocalAction::Insert('原'));
     state.apply_local(LocalAction::Insert('文'));
 
     // When
     let dispatch = driver
-        .send_and_apply_at(key(1, 0, Key::Character('n')), timestamp(), &mut state)
+        .send_and_apply_at(
+            key(1, 0, Key::Character('n')),
+            timestamp(),
+            SessionApplicationContext::new(&mut state, &mut store),
+        )
         .unwrap();
 
     // Then
@@ -115,15 +121,24 @@ fn drains_cancel_composition_action_and_applies_ready_clear() {
     let session = Session::new(header(0, 0), BuiltinPipeline::new([]));
     let mut driver = SessionDriver::new(session, RunId::new("run-drain-cancel"));
     let mut state = AppState::new();
+    let mut store = UserStore::new("drain-cancel");
     state.apply_local(LocalAction::Insert('原'));
     state.apply_local(LocalAction::Insert('文'));
     let _ = driver
-        .send_and_apply_at(key(1, 0, Key::Character('n')), timestamp(), &mut state)
+        .send_and_apply_at(
+            key(1, 0, Key::Character('n')),
+            timestamp(),
+            SessionApplicationContext::new(&mut state, &mut store),
+        )
         .unwrap();
 
     // When
     let dispatch = driver
-        .send_and_apply_at(key(2, 1, Key::Escape), timestamp(), &mut state)
+        .send_and_apply_at(
+            key(2, 1, Key::Escape),
+            timestamp(),
+            SessionApplicationContext::new(&mut state, &mut store),
+        )
         .unwrap();
 
     // Then
@@ -176,6 +191,7 @@ fn drains_many_platform_actions_in_sequence_with_strictly_increasing_events() {
     let session = Session::new(header(0, 0), BuiltinPipeline::new([]));
     let mut driver = SessionDriver::new(session, RunId::new("run-drain-many"));
     let mut state = AppState::new();
+    let mut store = UserStore::new("drain-many");
     let mut events = Vec::new();
     let mut applications = Vec::new();
 
@@ -185,7 +201,7 @@ fn drains_many_platform_actions_in_sequence_with_strictly_increasing_events() {
             .send_and_apply_at(
                 key(sequence, sequence - 1, Key::Character('n')),
                 timestamp(),
-                &mut state,
+                SessionApplicationContext::new(&mut state, &mut store),
             )
             .unwrap();
         events.extend(dispatch.events);

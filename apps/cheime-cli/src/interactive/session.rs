@@ -7,6 +7,7 @@ use std::fmt;
 use super::log::{EventSequence, ProtocolEvent, RunId};
 
 mod drain;
+pub(in crate::interactive) use drain::SessionApplicationContext;
 
 pub(super) struct SessionDriver<P> {
     session: Session<P>,
@@ -239,3 +240,7 @@ mod drain_commit_tests;
 #[cfg(test)]
 #[path = "session_drain_action_tests.rs"]
 mod drain_action_tests;
+
+#[cfg(test)]
+#[path = "session_drain_learning_tests.rs"]
+mod drain_learning_tests;

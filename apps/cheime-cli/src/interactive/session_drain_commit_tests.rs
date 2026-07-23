@@ -8,11 +8,12 @@ use cheime_protocol::{EngineMessage, FrontendMessage, MessageHeader};
 use cheime_session::Session;
 use chrono::{DateTime, Utc};
 
-use super::SessionDriver;
+use super::{SessionApplicationContext, SessionDriver};
 use crate::interactive::{
     app::{AppState, PlatformActionApplication},
     log::{EventDirection, EventSequence, ProtocolEventPayload, RunId},
 };
+use cheime_user_data::UserStore;
 
 fn header(sequence: u64, revision: u64) -> MessageHeader {
     MessageHeader {
@@ -50,16 +51,29 @@ fn drains_commit_action_after_n_i_enter_and_inserts_text_once() {
     let session = Session::new(header(0, 0), pipeline);
     let mut driver = SessionDriver::new(session, RunId::new("run-drain-commit"));
     let mut state = AppState::new();
+    let mut store = UserStore::new("drain-commit");
     let _ = driver
-        .send_and_apply_at(key(1, 0, Key::Character('n')), timestamp(), &mut state)
+        .send_and_apply_at(
+            key(1, 0, Key::Character('n')),
+            timestamp(),
+            SessionApplicationContext::new(&mut state, &mut store),
+        )
         .unwrap();
     let _ = driver
-        .send_and_apply_at(key(2, 1, Key::Character('i')), timestamp(), &mut state)
+        .send_and_apply_at(
+            key(2, 1, Key::Character('i')),
+            timestamp(),
+            SessionApplicationContext::new(&mut state, &mut store),
+        )
         .unwrap();
 
     // When
     let dispatch = driver
-        .send_and_apply_at(key(3, 2, Key::Enter), timestamp(), &mut state)
+        .send_and_apply_at(
+            key(3, 2, Key::Enter),
+            timestamp(),
+            SessionApplicationContext::new(&mut state, &mut store),
+        )
         .unwrap();
 
     // Then
