@@ -4,6 +4,9 @@ use serde::{Serialize, Serializer};
 use std::fmt;
 use std::io::{self, BufWriter, Write};
 
+pub(super) mod cleanup;
+pub(super) mod lifecycle;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum EventDirection {
@@ -208,6 +211,10 @@ where
     serializer.serialize_str(&timestamp.to_rfc3339_opts(SecondsFormat::AutoSi, true))
 }
 
+#[cfg(test)]
+mod cleanup_tests;
+#[cfg(test)]
+mod lifecycle_tests;
 #[cfg(test)]
 mod schema_tests;
 #[cfg(test)]
