@@ -2,6 +2,7 @@ mod app;
 mod editor;
 mod input;
 mod log;
+mod render;
 mod session;
 
 #[cfg(test)]
