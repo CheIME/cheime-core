@@ -20,9 +20,13 @@ pub(super) fn truncate_columns(text: &str, max_columns: usize) -> String {
 }
 
 mod frame;
+mod writer;
 
 #[cfg(test)]
 mod frame_tests;
 
 #[cfg(test)]
 mod render_tests;
+
+#[cfg(test)]
+mod writer_tests;
