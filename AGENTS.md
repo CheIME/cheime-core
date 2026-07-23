@@ -14,6 +14,15 @@ Rust 1.85.0, edition 2024, Cargo resolver 3, MPL-2.0. Source centrality is unmea
 
 ```text
 apps/cheime-cli/          # Executable core harness: interactive and JSON-lines modes
+  src/interactive/        # TUI event loop, terminal lifecycle, key input, app state, render
+    tui.rs                # Main event loop: Terminal → read_key → route → apply → build_frame → render
+    terminal.rs           # RAII terminal guard: raw mode, alternate screen, cursor hide
+    input.rs              # Key routing, composition editor, crossterm KeyEvent conversion
+    app.rs                # AppState bridge: routes local edits + remote engine messages to UI
+    render.rs             # Re-exports frame and writer modules
+  src/render/             # Pure frame layout and ANSI terminal writer
+    frame.rs              # Frame struct, build_frame: status bar + editor + candidate list
+    writer.rs             # render_frame: crossterm command queue + flush
 crates/cheime-model/      # Platform-neutral values and IDs; foundation crate
 crates/cheime-protocol/   # FrontendMessage / EngineMessage contracts
 crates/cheime-pipeline/   # Component traits, implementations, and factory assembly
@@ -44,6 +53,12 @@ docs/                     # Architecture and subsystem references; some mileston
 | Change lookup/cache behavior | `crates/cheime-dictionary/src/index.rs`, `cache.rs`, `tiered.rs` | Memory and mmap tiers differ |
 | Change learning persistence | `crates/cheime-user-data/src/event.rs` | Event/cache/SQLite logic share one file |
 | Exercise the assembled core | `apps/cheime-cli/src/main.rs` | No platform frontend required |
+| Trace interactive key flow | `apps/cheime-cli/src/interactive/tui.rs` | Terminal → input → session → render loop |
+| Change key routing or composition | `apps/cheime-cli/src/interactive/input.rs` | `from_crossterm_key`, `route_key`, `CompositionEditor` |
+| Change app state or UI bridge | `apps/cheime-cli/src/interactive/app.rs` | `AppState`: routes edits + engine messages to UI |
+| Change terminal lifecycle | `apps/cheime-cli/src/interactive/terminal.rs` | `Terminal` RAII guard, raw mode, event read |
+| Change frame layout | `apps/cheime-cli/src/render/frame.rs` | `Frame`, `build_frame`: status + editor + candidates |
+| Change ANSI rendering | `apps/cheime-cli/src/render/writer.rs` | `render_frame`: crossterm command queue + flush |
 
 ## CODE MAP
 
@@ -55,6 +70,12 @@ docs/                     # Architecture and subsystem references; some mileston
 | `PipelineFactory::build` | method | `crates/cheime-pipeline/src/factory.rs:26` | unmeasured | Typed config to component graph |
 | `DiagnosticError` | struct | `crates/cheime-diagnostics/src/lib.rs:64` | unmeasured | Structured diagnostics value |
 | `main` | function | `apps/cheime-cli/src/main.rs:22` | entry | Core-only executable harness |
+| `run_interactive` | function | `apps/cheime-cli/src/interactive/tui.rs` | CLI | TUI event loop entry point |
+| `AppState` | struct | `apps/cheime-cli/src/interactive/app.rs` | CLI | Routes edits + engine messages to UI |
+| `Terminal` | struct | `apps/cheime-cli/src/interactive/terminal.rs` | CLI | RAII terminal lifecycle guard |
+| `InputHandler` | struct | `apps/cheime-cli/src/interactive/input.rs` | CLI | Key routing + composition editor |
+| `Frame` | struct | `apps/cheime-cli/src/render/frame.rs` | CLI | Status bar + editor + candidate layout |
+| `render_frame` | function | `apps/cheime-cli/src/render/writer.rs` | CLI | crossterm command queue + flush |
 
 ## PURE CORE DEBUGGING
 
@@ -72,6 +93,9 @@ cargo test -p cheime-pipeline --test stress_tests TEST_NAME -- --exact --nocaptu
 
 # Black-box core process: one KeyEvent JSON object per stdin line
 cargo run -p cheime-cli -- --json
+
+# Interactive TUI mode: full terminal UI with session, candidates, and composition
+cargo run -p cheime-cli
 ```
 
 The vertical slice sends `n`, `i`, Enter, then `PlatformActionResult::Applied`; it verifies that composition is retained while commit is pending and cleared only after confirmation. Prefer JSON mode over the interactive CLI for deterministic replay. JSON key state includes all of `shift`, `control`, and `alt`. Set `CHEIME_DATA_DIR` to a temporary directory when isolating CLI cache/user-data effects.
@@ -108,6 +132,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo build -p cheime-cli
 cargo run -p cheime-cli -- --json
+cargo run -p cheime-cli
 cargo test --manifest-path crates/cheime-wire/Cargo.toml
 ```
 
