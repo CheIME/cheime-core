@@ -422,14 +422,26 @@ mod tests {
         assert_eq!(composed.lexemes[0].source, "user_dict");
     }
 
+    fn rime_body(raw: &str) -> &str {
+        raw.find("\n...\r\n")
+            .map(|start| &raw[start + 6..])
+            .or_else(|| raw.find("\n...\n").map(|start| &raw[start + 5..]))
+            .unwrap_or(raw)
+    }
+
+    #[test]
+    fn rime_body_skips_lf_and_crlf_headers() {
+        let lf_body = rime_body("---\nname: base\n...\n你好\tni hao\t1\n");
+        let crlf_body = rime_body("---\r\nname: base\r\n...\r\n你好\tni hao\t1\r\n");
+
+        assert_eq!(lf_body, "你好\tni hao\t1\n");
+        assert_eq!(crlf_body, "你好\tni hao\t1\r\n");
+    }
+
     #[test]
     fn snapshot_nihao_with_dict() {
         let raw = include_str!("../../../data/dicts/rime_ice_base.dict.yaml");
-        let body = if let Some(p) = raw.find("\n...\n") {
-            &raw[p + 5..]
-        } else {
-            raw
-        };
+        let body = rime_body(raw);
         let cols = &[
             cheime_dictionary::DictColumn::Text,
             cheime_dictionary::DictColumn::Code,
