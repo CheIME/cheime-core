@@ -46,6 +46,8 @@ impl UnifiedRanker {
 fn source_priority(src: &str) -> f64 {
     if src.starts_with("user") {
         1.0
+    } else if src.starts_with("dict:exact:") {
+        0.9
     } else if src.starts_with("dict") {
         0.8
     } else if src == "builtin" {
@@ -57,15 +59,35 @@ fn source_priority(src: &str) -> f64 {
     }
 }
 
+fn candidate_tier(src: &str) -> u8 {
+    if src.starts_with("user") {
+        5
+    } else if src.starts_with("dict:exact:") {
+        4
+    } else if src.starts_with("dict") {
+        3
+    } else if src == "builtin" {
+        2
+    } else if src == "emoji" {
+        1
+    } else {
+        0
+    }
+}
+
 impl Ranker for UnifiedRanker {
     fn name(&self) -> &str {
         "unified"
     }
     fn rank(&self, mut candidates: Vec<ResolvedCandidate>) -> Vec<ResolvedCandidate> {
         candidates.sort_by(|a, b| {
-            self.score(b)
-                .partial_cmp(&self.score(a))
-                .unwrap_or(Ordering::Equal)
+            candidate_tier(&b.source)
+                .cmp(&candidate_tier(&a.source))
+                .then_with(|| {
+                    self.score(b)
+                        .partial_cmp(&self.score(a))
+                        .unwrap_or(Ordering::Equal)
+                })
         });
         candidates
     }
@@ -158,6 +180,35 @@ mod tests {
             result[0].source, "dict:abc→simplified",
             "annotated dict source should rank above builtin"
         );
+    }
+
+    #[test]
+    fn exact_dictionary_candidate_ranks_above_completion() {
+        let r = UnifiedRanker::new(RankWeights {
+            source: 1.0,
+            code_length: 0.0,
+        });
+        let input = vec![
+            candidate(1, "精确", "dict:exact:fixture"),
+            candidate(2, "补全", "dict:fixture"),
+        ];
+
+        let result = r.rank(input);
+
+        assert_eq!(result[0].text, "精确");
+    }
+
+    #[test]
+    fn exact_dictionary_candidate_precedes_shorter_completion_by_default() {
+        let r = UnifiedRanker::new(RankWeights::default());
+        let input = vec![
+            candidate(1, "中华人民共和国", "dict:exact:fixture"),
+            candidate(2, "吗", "dict:fixture"),
+        ];
+
+        let result = r.rank(input);
+
+        assert_eq!(result[0].text, "中华人民共和国");
     }
 
     #[test]

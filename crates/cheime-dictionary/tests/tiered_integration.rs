@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 fn rime_ice_files() -> Vec<PathBuf> {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let base = manifest.join("../../../data/dicts/rime_ice_base.dict.yaml");
+    let base = manifest.join("../../data/dicts/rime_ice_base.dict.yaml");
     if base.exists() {
         return vec![base];
     }

@@ -1,10 +1,6 @@
 //! Pinyin syllable segmentor using a prefix trie.
 //!
-//! Extracted from the benchmark prototype and upgraded to support
-//! multiple segmentation paths (instead of greedy leftmost-longest).
-//!
-//! For now uses the simpler greedy approach. The BFS syllable-graph
-//! upgrade is planned for phase 1.3.
+//! Complete syllable coverage is preferred over a local longest match.
 
 use crate::Segmentor;
 use crate::segmentation::{InputSpan, SegmentationGraph, SyllableEdge, SyllableKind};
@@ -226,6 +222,15 @@ mod tests {
         let seg = PinyinSegmentor::new();
         let result = seg.segment("");
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn repeated_syllables_do_not_choose_a_dead_end() {
+        let seg = PinyinSegmentor::new();
+        let result = seg.segment("ninininini").primary_path();
+        let codes: Vec<&str> = result.iter().map(|segment| segment.code.as_str()).collect();
+
+        assert_eq!(codes, ["ni", "ni", "ni", "ni", "ni"]);
     }
 
     #[test]

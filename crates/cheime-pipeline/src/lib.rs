@@ -31,7 +31,7 @@ pub enum PipelineIntent {
     None,
     Cancel,
     CommitHighlighted,
-    /// Commit the raw composition text without candidate conversion.
+    /// Commit the raw composition text as-is (Enter key / predict mode).
     CommitRaw,
     /// Commit a specific text directly (used by punctuator for single-commit symbols).
     CommitText(String),

@@ -33,6 +33,61 @@ pub struct SegmentationGraph {
     outgoing: Vec<Vec<SyllableEdge>>,
 }
 
+#[derive(Clone)]
+struct PrimaryPath {
+    raw_edges: usize,
+    incomplete_edges: usize,
+    singleton_complete_edges: usize,
+    segments: Vec<CodeSegment>,
+}
+
+impl PrimaryPath {
+    fn terminal() -> Self {
+        Self {
+            raw_edges: 0,
+            incomplete_edges: 0,
+            singleton_complete_edges: 0,
+            segments: Vec::new(),
+        }
+    }
+
+    fn prepend(edge: &SyllableEdge, suffix: &Self) -> Self {
+        let mut segments = Vec::with_capacity(suffix.segments.len() + 1);
+        segments.push(CodeSegment {
+            code: edge.canonical.clone(),
+            tag: match edge.kind {
+                SyllableKind::Raw => "raw",
+                SyllableKind::Complete => "pinyin",
+                SyllableKind::Incomplete => "pinyin-incomplete",
+            }
+            .to_owned(),
+        });
+        segments.extend(suffix.segments.clone());
+        Self {
+            raw_edges: suffix.raw_edges + usize::from(edge.kind == SyllableKind::Raw),
+            incomplete_edges: suffix.incomplete_edges
+                + usize::from(edge.kind == SyllableKind::Incomplete),
+            singleton_complete_edges: suffix.singleton_complete_edges
+                + usize::from(edge.kind == SyllableKind::Complete && edge.raw.len() == 1),
+            segments,
+        }
+    }
+
+    fn is_preferred_to(&self, other: &Self) -> bool {
+        (
+            self.raw_edges,
+            self.incomplete_edges,
+            self.singleton_complete_edges,
+            self.segments.len(),
+        ) < (
+            other.raw_edges,
+            other.incomplete_edges,
+            other.singleton_complete_edges,
+            other.segments.len(),
+        )
+    }
+}
+
 impl SegmentationGraph {
     pub fn new(input_len: usize) -> Self {
         Self {
@@ -88,38 +143,32 @@ impl SegmentationGraph {
     }
 
     /// Transitional linear view used by translators until the word-graph
-    /// decoder consumes the graph directly. It follows the longest complete
-    /// edge, then the longest incomplete edge, then raw input.
+    /// decoder consumes the graph directly. It chooses a deterministic path
+    /// across the whole graph rather than greedily taking a local longest edge.
     pub fn primary_path(&self) -> Vec<CodeSegment> {
-        let mut result = Vec::new();
-        let mut offset = 0;
-        while offset < self.input_len {
-            let Some(edge) = self
-                .edges_from(offset)
-                .iter()
-                .filter(|edge| edge.kind == SyllableKind::Complete)
-                .max_by_key(|edge| edge.span.end)
-                .or_else(|| {
-                    self.edges_from(offset)
-                        .iter()
-                        .filter(|edge| edge.kind == SyllableKind::Incomplete)
-                        .max_by_key(|edge| edge.span.end)
-                })
-                .or_else(|| self.edges_from(offset).first())
-            else {
-                break;
-            };
-            result.push(CodeSegment {
-                code: edge.canonical.clone(),
-                tag: match edge.kind {
-                    SyllableKind::Raw => "raw",
-                    SyllableKind::Complete => "pinyin",
-                    SyllableKind::Incomplete => "pinyin-incomplete",
+        let mut paths = vec![None; self.input_len + 1];
+        paths[self.input_len] = Some(PrimaryPath::terminal());
+
+        for offset in (0..self.input_len).rev() {
+            for edge in self.edges_from(offset) {
+                let Some(suffix) = &paths[edge.span.end] else {
+                    continue;
+                };
+                let candidate = PrimaryPath::prepend(edge, suffix);
+                let replace = paths[offset]
+                    .as_ref()
+                    .is_none_or(|current| candidate.is_preferred_to(current));
+                if replace {
+                    paths[offset] = Some(candidate);
                 }
-                .to_owned(),
-            });
-            offset = edge.span.end;
+            }
         }
-        result
+
+        paths
+            .into_iter()
+            .next()
+            .flatten()
+            .map(|path| path.segments)
+            .unwrap_or_default()
     }
 }

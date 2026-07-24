@@ -7,7 +7,7 @@ use crate::decoder::{Decoder, DecoderOptions, Lexicon, ResolvedCandidate};
 use crate::segmentation::SegmentationGraph;
 use crate::{CodeSegment, Translator};
 use cheime_dictionary::{CompiledIndex, LexiconEntry};
-use cheime_model::Candidate;
+use cheime_model::{Candidate, CandidateId};
 use std::sync::Arc;
 
 /// Translates segments by querying a compiled dictionary index.
@@ -57,11 +57,73 @@ impl Translator for DictTranslator {
             1 if code.len() == 1 => self.index.query_prefix(&code, 100),
             1 => self.index.query(&code),
             _ => {
-                let results = self.index.query_prefix(&code, 10);
-                if !results.is_empty() {
-                    return results;
+                let mut results = self.index.query(&code);
+                for candidate in &mut results {
+                    candidate.source = format!("dict:exact:{}", candidate.source);
                 }
-                vec![]
+                for candidate in self.index.query_prefix(&code, 10) {
+                    if !results
+                        .iter()
+                        .any(|existing| existing.text == candidate.text)
+                    {
+                        results.push(candidate);
+                    }
+                }
+
+                let mut per_segment = Vec::with_capacity(segments.len());
+                for segment in segments {
+                    let candidates = if segment.code.len() == 1 {
+                        self.index.query_prefix(&segment.code, 5)
+                    } else {
+                        self.index.query(&segment.code)
+                    };
+                    per_segment.push(candidates);
+                }
+
+                let mut combined = Vec::new();
+                let concatenated: String = per_segment
+                    .iter()
+                    .zip(segments)
+                    .map(|(candidates, segment)| {
+                        candidates
+                            .first()
+                            .map_or(segment.code.as_str(), |candidate| candidate.text.as_str())
+                    })
+                    .collect();
+                if !concatenated.is_empty() {
+                    combined.push(Candidate {
+                        id: CandidateId::new(1),
+                        text: concatenated,
+                        annotation: None,
+                        source: String::from("dict:concat"),
+                        is_emoji: false,
+                    });
+                }
+                for candidates in &per_segment {
+                    for candidate in candidates {
+                        if combined.len() == 10 {
+                            break;
+                        }
+                        if !combined
+                            .iter()
+                            .any(|existing| existing.text == candidate.text)
+                        {
+                            combined.push(candidate.clone());
+                        }
+                    }
+                    if combined.len() == 10 {
+                        break;
+                    }
+                }
+                for candidate in combined {
+                    if !results
+                        .iter()
+                        .any(|existing| existing.text == candidate.text)
+                    {
+                        results.push(candidate);
+                    }
+                }
+                results
             }
         }
     }
@@ -211,83 +273,5 @@ impl Translator for UserDictTranslator {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::Segmentor;
-    use crate::segmentor::PinyinSegmentor;
-    use cheime_dictionary::{CompiledIndex, DictEntry};
-    use cheime_model::DeploymentGeneration;
-    use std::sync::Arc;
-
-    fn test_index() -> Arc<CompiledIndex> {
-        let entries = vec![
-            DictEntry {
-                text: "你".into(),
-                code: "ni".into(),
-                weight: Some(100),
-                stem: None,
-            },
-            DictEntry {
-                text: "好".into(),
-                code: "hao".into(),
-                weight: Some(100),
-                stem: None,
-            },
-        ];
-        Arc::new(CompiledIndex::build(entries, DeploymentGeneration::new(1)))
-    }
-
-    #[test]
-    fn dict_translator_returns_candidates() {
-        let translator = DictTranslator::new("test", test_index());
-        let segment = CodeSegment {
-            code: "ni".into(),
-            tag: "pinyin".into(),
-        };
-        let candidates = translator.translate(&[segment]);
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].text, "你");
-    }
-
-    #[test]
-    fn dict_translator_completes_incomplete_nih() {
-        let index = Arc::new(CompiledIndex::build(
-            vec![
-                DictEntry {
-                    text: "你好".into(),
-                    code: "ni hao".into(),
-                    weight: Some(200),
-                    stem: None,
-                },
-                DictEntry {
-                    text: "你".into(),
-                    code: "ni".into(),
-                    weight: Some(100),
-                    stem: None,
-                },
-                DictEntry {
-                    text: "好".into(),
-                    code: "hao".into(),
-                    weight: Some(100),
-                    stem: None,
-                },
-            ],
-            DeploymentGeneration::new(1),
-        ));
-        let translator = DictTranslator::new("test", index);
-        let graph = PinyinSegmentor::new().segment("nih");
-        let candidates = translator.translate_graph(&graph);
-        assert!(candidates.iter().any(|candidate| candidate.text == "你好"));
-    }
-
-    #[test]
-    fn passthrough_returns_code_as_text() {
-        let t = PassthroughTranslator;
-        let seg = CodeSegment {
-            code: "hello".into(),
-            tag: "unknown".into(),
-        };
-        let candidates = t.translate(&[seg]);
-        assert_eq!(candidates[0].text, "hello");
-    }
-}
+#[path = "translator_tests.rs"]
+mod tests;
