@@ -1,3 +1,5 @@
+#![allow(dead_code)] // Scaffolded logging infrastructure; will be wired in later tasks
+
 use cheime_protocol::{EngineMessage, FrontendMessage};
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Serialize, Serializer};

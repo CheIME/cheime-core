@@ -1,3 +1,5 @@
+#![allow(dead_code)] // Scaffolded cleanup infrastructure; will be wired in later tasks
+
 use chrono::{DateTime, Duration, NaiveDateTime, TimeZone, Utc};
 use std::ffi::OsStr;
 use std::fs;

@@ -39,7 +39,8 @@ pub(super) struct SessionDispatch {
 pub(super) enum SessionDispatchError {
     Session {
         error: SessionError,
-        frontend_event: ProtocolEvent,
+        #[allow(dead_code)]
+        frontend_event: Box<ProtocolEvent>,
     },
     SequenceOverflow,
     /// Terminal/non-retryable: Session mutated before violating its declared output bound;
@@ -93,6 +94,7 @@ where
         }
     }
 
+    #[allow(dead_code)]
     pub(in crate::interactive) fn with_initial_sequence(mut self, sequence: EventSequence) -> Self {
         self.cursor = EventCursor::Next(sequence);
         self
@@ -117,7 +119,7 @@ where
         let frontend_sequence = self.cursor.current()?;
         preflight_last_sequence(frontend_sequence, maximum_engine_outputs + 1)?;
         let frontend = ProtocolEvent::frontend(
-            timestamp.clone(),
+            timestamp,
             self.run_id.clone(),
             frontend_sequence,
             message.clone(),
@@ -129,7 +131,7 @@ where
                 self.cursor = EventCursor::after(frontend_sequence);
                 return Err(SessionDispatchError::Session {
                     error,
-                    frontend_event: frontend,
+                    frontend_event: Box::new(frontend),
                 });
             }
         };
@@ -146,7 +148,7 @@ where
         for engine_message in &messages {
             event_sequence = next_event_sequence(event_sequence)?;
             let event = ProtocolEvent::engine(
-                timestamp.clone(),
+                timestamp,
                 self.run_id.clone(),
                 event_sequence,
                 engine_message.clone(),

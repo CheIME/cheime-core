@@ -1,6 +1,8 @@
 use super::app::{AppState, LocalAction};
 use cheime_model::{Key, UiCommand};
-use crossterm::event::{KeyCode, KeyEvent as CtKeyEvent, KeyEventKind, KeyModifiers as CtModifiers};
+use crossterm::event::{
+    KeyCode, KeyEvent as CtKeyEvent, KeyEventKind, KeyModifiers as CtModifiers,
+};
 
 const NO_HIGHLIGHT_STATUS: &str = "candidate selection requires a highlighted candidate";
 
@@ -56,6 +58,7 @@ pub(super) enum AppAction {
 pub(super) enum SessionCommand {
     Key(Key),
     Ui(UiCommand),
+    #[allow(dead_code)]
     Close,
 }
 
@@ -226,8 +229,8 @@ fn route_digit(state: &AppState, index: usize, digit: char) -> AppAction {
 #[cfg(test)]
 mod candidate_tests;
 #[cfg(test)]
+mod crossterm_tests;
+#[cfg(test)]
 mod input_tests;
 #[cfg(test)]
 mod modifier_tests;
-#[cfg(test)]
-mod crossterm_tests;

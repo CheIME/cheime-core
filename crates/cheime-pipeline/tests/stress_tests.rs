@@ -3,7 +3,7 @@
 //! Verifies correctness and catches regressions at scale.
 
 use cheime_config::schema::PunctuatorConfig;
-use cheime_config::schema::{FuzzyPinyinConfig, SchemaConfig};
+use cheime_config::schema::SchemaConfig;
 use cheime_dictionary::{CompiledIndex, DictColumn, parse_body};
 use cheime_model::{DeploymentGeneration, Key, KeyEvent, KeyState};
 use cheime_pipeline::ComposablePipeline;
@@ -419,6 +419,8 @@ fn fuzzy_pinyin_matches_with_normalizer() {
         "should produce candidates for zhong with fuzzy normalizer in pipeline"
     );
 }
+
+#[test]
 fn punctuator_half_shape_does_not_convert() {
     let mut full = BTreeMap::new();
     full.insert(".".into(), serde_json::json!({"commit": "。"}));

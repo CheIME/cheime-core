@@ -67,6 +67,7 @@ impl Terminal {
     ///
     /// Returns `Ok(None)` when no key is available within `timeout`.
     /// Like `read_key`, non-key events are filtered out.
+    #[allow(dead_code)]
     pub(super) fn try_read_key(&self, timeout: Duration) -> io::Result<Option<KeyEvent>> {
         if !event::poll(timeout)? {
             return Ok(None);

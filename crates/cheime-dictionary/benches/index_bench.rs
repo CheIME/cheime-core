@@ -87,7 +87,7 @@ fn real_index() -> &'static (CompiledIndex, Vec<String>) {
             "loaded luna_pinyin: {} entries, {} unique codes, {} entries in index",
             count,
             codes.len(),
-            index.total_entries,
+            index.total_entries(),
         );
         (index, codes)
     })
@@ -126,7 +126,7 @@ fn rime_ice_index() -> &'static (CompiledIndex, Vec<String>) {
             "loaded rime_ice: {} entries, {} unique codes, {} entries in index",
             count,
             codes.len(),
-            index.total_entries,
+            index.total_entries(),
         );
         (index, codes)
     })
@@ -378,6 +378,7 @@ impl SyllableTrie {
         while pos < bytes.len() {
             let mut node = self;
             let mut longest = pos;
+            #[allow(clippy::needless_range_loop)]
             for i in pos..bytes.len() {
                 let idx = (bytes[i] - b'a') as usize;
                 match &node.children[idx] {

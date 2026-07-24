@@ -1,9 +1,11 @@
+use cheime_model::{
+    CORE_PROTOCOL_VERSION, ClientInstanceId, DeploymentGeneration, KeyEvent, KeyState, Revision,
+    Sequence, SessionEpoch, SessionId,
+};
 use cheime_pipeline::InputPipeline;
 use cheime_protocol::FrontendMessage;
-use cheime_session::Session;
-use cheime_model::{KeyEvent, KeyState, Sequence, CORE_PROTOCOL_VERSION,
-    ClientInstanceId, SessionId, SessionEpoch, Revision, DeploymentGeneration};
 use cheime_protocol::MessageHeader;
+use cheime_session::Session;
 use cheime_user_data::UserStore;
 use chrono::Utc;
 use parking_lot::Mutex;
@@ -16,7 +18,7 @@ use super::input::{self, AppAction, SessionCommand};
 use super::log::RunId;
 use super::render::frame::build_frame;
 use super::render::writer::render_frame;
-use super::session::{SessionDispatchError, SessionDriver, SessionApplicationContext};
+use super::session::{SessionApplicationContext, SessionDispatchError, SessionDriver};
 use super::terminal::Terminal;
 
 pub(crate) fn run_interactive<P: InputPipeline>(

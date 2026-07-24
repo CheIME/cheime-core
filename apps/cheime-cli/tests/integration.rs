@@ -74,8 +74,7 @@ fn nihao_produces_ni_hao_candidates() {
     // Find the last CandidateSnapshot
     let last_snapshot = lines
         .iter()
-        .filter(|l| l.contains("CandidateSnapshot"))
-        .last()
+        .rfind(|l| l.contains("CandidateSnapshot"))
         .expect("no CandidateSnapshot found");
 
     // It must contain 你好 and 拟好
@@ -114,8 +113,7 @@ fn backspace_removes_last_char() {
     // The last PlatformAction should have preedit "ni"
     let last_set_preedit = lines
         .iter()
-        .filter(|l| l.contains("SetPreedit"))
-        .last()
+        .rfind(|l| l.contains("SetPreedit"))
         .expect("no SetPreedit found");
     assert!(
         last_set_preedit.contains(r#""text":"ni""#),

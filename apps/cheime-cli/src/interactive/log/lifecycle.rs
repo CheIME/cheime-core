@@ -1,3 +1,5 @@
+#![allow(dead_code)] // Scaffolded lifecycle infrastructure; will be wired in later tasks
+
 use super::ProtocolEventWriter;
 use chrono::{DateTime, Utc};
 use std::fs::{self, File, OpenOptions};

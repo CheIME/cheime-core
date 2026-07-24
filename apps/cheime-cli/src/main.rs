@@ -5,10 +5,10 @@
 //!   cargo run -p cheime-cli               # interactive mode (default)
 //!   cargo run -p cheime-cli -- --json     # JSON I/O mode (stdin/stdout)
 
-use cheime_dictionary::{parse_body, CompiledIndex, DictColumn};
+use cheime_dictionary::{CompiledIndex, DictColumn, parse_body};
 use cheime_model::{
-    CORE_PROTOCOL_VERSION, ClientInstanceId, DeploymentGeneration,
-    PlatformActionKind, Revision, Sequence, SessionEpoch, SessionId,
+    CORE_PROTOCOL_VERSION, ClientInstanceId, DeploymentGeneration, PlatformActionKind, Revision,
+    Sequence, SessionEpoch, SessionId,
 };
 use cheime_pipeline::factory::PipelineFactory;
 use cheime_protocol::{EngineMessage, FrontendMessage, MessageHeader};
@@ -26,19 +26,25 @@ fn main() {
     let json_mode = args.iter().any(|a| a == "--json");
 
     let db_path = data_dir().join("cheime_cli_user.db");
-    let user_store = UserStore::open("cli-device", &db_path)
-        .unwrap_or_else(|_| UserStore::new("cli-device"));
+    let user_store =
+        UserStore::open("cli-device", &db_path).unwrap_or_else(|_| UserStore::new("cli-device"));
     let store = Arc::new(Mutex::new(user_store));
 
-    let config: cheime_config::schema::SchemaConfig =
-        serde_yaml::from_str("schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n").unwrap();
+    let config: cheime_config::schema::SchemaConfig = serde_yaml::from_str(
+        "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n",
+    )
+    .unwrap();
     let dict_index = load_dict();
-    let pipeline = PipelineFactory::build(&config, Some(store.clone()), Some(dict_index), None).unwrap();
+    let pipeline =
+        PipelineFactory::build(&config, Some(store.clone()), Some(dict_index), None).unwrap();
 
     let header = MessageHeader {
-        protocol_version: CORE_PROTOCOL_VERSION, client: ClientInstanceId::new(1),
-        session: SessionId::new(1), epoch: SessionEpoch::new(1),
-        sequence: Sequence::new(0), revision: Revision::new(0),
+        protocol_version: CORE_PROTOCOL_VERSION,
+        client: ClientInstanceId::new(1),
+        session: SessionId::new(1),
+        epoch: SessionEpoch::new(1),
+        sequence: Sequence::new(0),
+        revision: Revision::new(0),
         deployment: DeploymentGeneration::new(1),
     };
 
@@ -80,7 +86,9 @@ fn run_json(
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };
         let trimmed = line.trim();
-        if trimmed.is_empty() { continue; }
+        if trimmed.is_empty() {
+            continue;
+        }
 
         seq += 1;
         let key = match serde_json::from_str::<KeyEvent>(trimmed) {

@@ -122,7 +122,10 @@ impl std::io::Write for FlushRequired {
 
 impl Drop for FlushRequired {
     fn drop(&mut self) {
-        assert!(self.flushed, "render_frame must call flush before returning");
+        assert!(
+            self.flushed,
+            "render_frame must call flush before returning"
+        );
     }
 }
 

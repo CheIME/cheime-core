@@ -85,11 +85,8 @@ impl FuzzyNormalizer {
 
     /// Apply a single substitution to a code string.
     fn apply_rule(code: &str, from: &str, to: &str) -> Option<String> {
-        if code.starts_with(from) {
-            Some(format!("{to}{}", &code[from.len()..]))
-        } else {
-            None
-        }
+        code.strip_prefix(from)
+            .map(|stripped| format!("{to}{stripped}"))
     }
 
     /// Create from rule names like "zh_z", "n_l". Empty = all standard rules.

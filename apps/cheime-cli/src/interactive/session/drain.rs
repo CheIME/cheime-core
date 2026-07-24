@@ -20,8 +20,11 @@ impl<'a> SessionApplicationContext<'a> {
 
 #[derive(Debug)]
 pub(in crate::interactive) struct SessionApplicationDispatch {
+    #[allow(dead_code)]
     pub(super) messages: Vec<EngineMessage>,
+    #[allow(dead_code)]
     pub(super) events: Vec<crate::interactive::log::ProtocolEvent>,
+    #[allow(dead_code)]
     pub(super) applications: Vec<PlatformActionApplication>,
 }
 
@@ -37,7 +40,7 @@ where
         context: SessionApplicationContext<'_>,
     ) -> Result<SessionApplicationDispatch, SessionDispatchError> {
         let SessionApplicationContext { state, store } = context;
-        let initial = self.send_at(message, timestamp.clone())?;
+        let initial = self.send_at(message, timestamp)?;
         let mut queue = VecDeque::from(initial.messages);
         let mut messages = Vec::new();
         let mut events = initial.events;
@@ -57,7 +60,7 @@ where
                             outcome: cheime_model::PlatformActionOutcome::Applied,
                         },
                     };
-                    let response = self.send_at(acknowledgement, timestamp.clone())?;
+                    let response = self.send_at(acknowledgement, timestamp)?;
                     queue.extend(response.messages);
                     events.extend(response.events);
                     match &application {

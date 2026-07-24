@@ -63,6 +63,7 @@ pub(super) struct AppState {
     detail_mode: DetailMode,
     detail_scroll: usize,
     status: Option<String>,
+    #[allow(dead_code)]
     should_exit: bool,
 }
 
@@ -102,6 +103,7 @@ impl AppState {
         self.status.as_deref()
     }
 
+    #[allow(dead_code)]
     pub(super) fn should_exit(&self) -> bool {
         self.should_exit
     }
@@ -121,6 +123,7 @@ impl AppState {
     /// `true` when the latest snapshot status is `CommitPending`.
     /// Used to block local edits while the platform has not acknowledged
     /// the commit.
+    #[allow(dead_code)]
     pub(super) fn commit_pending(&self) -> bool {
         match &self.snapshot {
             None => false,
@@ -141,6 +144,7 @@ impl AppState {
     }
 
     /// Flag the application to exit at the next opportunity.
+    #[allow(dead_code)]
     pub(super) fn set_should_exit(&mut self) {
         self.should_exit = true;
     }

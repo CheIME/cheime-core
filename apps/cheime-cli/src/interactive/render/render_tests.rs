@@ -151,7 +151,7 @@ fn truncate_columns_does_not_preserve_a_newline_at_zero_columns() {
 
     // Then
     assert_eq!(truncated, "");
-    assert!(display_width(&truncated) <= 0);
+    assert!(display_width(&truncated) == 0);
 }
 
 #[test]

@@ -1,4 +1,4 @@
-use super::{from_crossterm_key, InputEvent, InputKey, InputKind, InputModifiers};
+use super::{InputEvent, InputKey, InputKind, InputModifiers, from_crossterm_key};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -20,7 +20,11 @@ fn maps_character_key() {
         result,
         Some(InputEvent {
             key: InputKey::Character('a'),
-            modifiers: InputModifiers { shift: false, control: false, alt: false },
+            modifiers: InputModifiers {
+                shift: false,
+                control: false,
+                alt: false
+            },
             kind: InputKind::Press,
         })
     );
@@ -47,19 +51,27 @@ fn maps_escape() {
 #[test]
 fn maps_arrow_keys() {
     assert_eq!(
-        from_crossterm_key(ct_key(KeyCode::Left, no_mods())).unwrap().key,
+        from_crossterm_key(ct_key(KeyCode::Left, no_mods()))
+            .unwrap()
+            .key,
         InputKey::Left,
     );
     assert_eq!(
-        from_crossterm_key(ct_key(KeyCode::Right, no_mods())).unwrap().key,
+        from_crossterm_key(ct_key(KeyCode::Right, no_mods()))
+            .unwrap()
+            .key,
         InputKey::Right,
     );
     assert_eq!(
-        from_crossterm_key(ct_key(KeyCode::Up, no_mods())).unwrap().key,
+        from_crossterm_key(ct_key(KeyCode::Up, no_mods()))
+            .unwrap()
+            .key,
         InputKey::Up,
     );
     assert_eq!(
-        from_crossterm_key(ct_key(KeyCode::Down, no_mods())).unwrap().key,
+        from_crossterm_key(ct_key(KeyCode::Down, no_mods()))
+            .unwrap()
+            .key,
         InputKey::Down,
     );
 }
@@ -67,19 +79,27 @@ fn maps_arrow_keys() {
 #[test]
 fn maps_navigation_keys() {
     assert_eq!(
-        from_crossterm_key(ct_key(KeyCode::Home, no_mods())).unwrap().key,
+        from_crossterm_key(ct_key(KeyCode::Home, no_mods()))
+            .unwrap()
+            .key,
         InputKey::Home,
     );
     assert_eq!(
-        from_crossterm_key(ct_key(KeyCode::End, no_mods())).unwrap().key,
+        from_crossterm_key(ct_key(KeyCode::End, no_mods()))
+            .unwrap()
+            .key,
         InputKey::End,
     );
     assert_eq!(
-        from_crossterm_key(ct_key(KeyCode::PageUp, no_mods())).unwrap().key,
+        from_crossterm_key(ct_key(KeyCode::PageUp, no_mods()))
+            .unwrap()
+            .key,
         InputKey::PageUp,
     );
     assert_eq!(
-        from_crossterm_key(ct_key(KeyCode::PageDown, no_mods())).unwrap().key,
+        from_crossterm_key(ct_key(KeyCode::PageDown, no_mods()))
+            .unwrap()
+            .key,
         InputKey::PageDown,
     );
 }
@@ -101,23 +121,26 @@ fn maps_space_via_char() {
 #[test]
 fn captures_control_modifier() {
     let result = from_crossterm_key(ct_key(KeyCode::Char('c'), KeyModifiers::CONTROL));
-    assert_eq!(result.unwrap().modifiers, InputModifiers {
-        shift: false,
-        control: true,
-        alt: false,
-    });
+    assert_eq!(
+        result.unwrap().modifiers,
+        InputModifiers {
+            shift: false,
+            control: true,
+            alt: false,
+        }
+    );
 }
 
 #[test]
 fn captures_shift_modifier() {
     let result = from_crossterm_key(ct_key(KeyCode::Char('A'), KeyModifiers::SHIFT));
-    assert_eq!(result.unwrap().modifiers.shift, true);
+    assert!(result.unwrap().modifiers.shift);
 }
 
 #[test]
 fn captures_alt_modifier() {
     let result = from_crossterm_key(ct_key(KeyCode::Char('x'), KeyModifiers::ALT));
-    assert_eq!(result.unwrap().modifiers.alt, true);
+    assert!(result.unwrap().modifiers.alt);
 }
 
 // ── event kind ──────────────────────────────────────────────────────────────

@@ -4,7 +4,9 @@
 //! to the terminal setup layer (Task 7).
 
 use super::frame::Frame;
-use crossterm::{cursor::MoveTo, style::Print, terminal::Clear, terminal::ClearType, QueueableCommand};
+use crossterm::{
+    QueueableCommand, cursor::MoveTo, style::Print, terminal::Clear, terminal::ClearType,
+};
 use std::io::{self, Write};
 
 /// Renders `frame` to `writer` via batched crossterm commands.
