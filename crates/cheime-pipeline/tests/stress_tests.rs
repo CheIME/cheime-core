@@ -404,13 +404,16 @@ engine:
     let p = PipelineFactory::build(&config, None, Some(real_dict().clone()), None).unwrap();
 
     let mut comp = String::new();
+    let mut final_candidates = Vec::new();
     for ch in "zongguo".chars() {
         let update = p.apply(&comp, &key(ch)).unwrap();
         comp = update.composition;
-        if update.candidates.iter().any(|c| c.text == "中国") {
-            panic!("without fuzzy, 'zongguo' should NOT produce 中国");
-        }
+        final_candidates = update.candidates;
     }
+    assert!(
+        !final_candidates.iter().any(|c| c.text == "中国"),
+        "without fuzzy, the completed input 'zongguo' should NOT produce 中国"
+    );
 }
 
 #[test]
