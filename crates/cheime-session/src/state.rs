@@ -135,6 +135,22 @@ impl<P: InputPipeline> Session<P> {
                 self.handle_action_result(result)
             }
             FrontendMessage::UiCommand { command, .. } => self.handle_ui_command(command),
+            FrontendMessage::RollbackLearning { token, .. } => {
+                if token.session != self.identity.session {
+                    return Err(SessionError::WrongSession {
+                        received: token.session,
+                        expected: self.identity.session,
+                    });
+                }
+                if token.epoch != self.identity.epoch {
+                    return Err(SessionError::StaleEpoch {
+                        received: token.epoch,
+                        expected: self.identity.epoch,
+                    });
+                }
+                self.pipeline.rollback_learning(token);
+                Ok(Vec::new())
+            }
             FrontendMessage::OpenSession { .. } | FrontendMessage::CloseSession { .. } => {
                 Ok(Vec::new())
             }
@@ -154,6 +170,12 @@ impl<P: InputPipeline> Session<P> {
                 expected: self.identity.epoch,
             });
         }
+        if header.session != self.identity.session {
+            return Err(SessionError::WrongSession {
+                received: header.session,
+                expected: self.identity.session,
+            });
+        }
         // PlatformActionResult is a response to our action — its sequence is
         // assigned by the TIP and may not follow the engine's sequence counter.
         // Skip sequence/revision validation for it.
@@ -167,7 +189,9 @@ impl<P: InputPipeline> Session<P> {
             });
         }
         match &message {
-            FrontendMessage::KeyCommand { .. } | FrontendMessage::UiCommand { .. } => {}
+            FrontendMessage::KeyCommand { .. }
+            | FrontendMessage::UiCommand { .. }
+            | FrontendMessage::RollbackLearning { .. } => {}
             _ => {
                 if header.revision != self.revision {
                     return Err(SessionError::StaleRevision {
@@ -621,6 +645,8 @@ mod tests {
     #[derive(Clone, Default)]
     struct RecordingLearningPipeline {
         staged: Arc<Mutex<Vec<(cheime_model::CommitToken, CommitRecord)>>>,
+        cancel_attempts: Arc<Mutex<usize>>,
+        cancelled: Arc<Mutex<Vec<cheime_model::CommitToken>>>,
     }
 
     impl InputPipeline for RecordingLearningPipeline {
@@ -642,6 +668,14 @@ mod tests {
             record: CommitRecord,
         ) {
             self.staged.lock().unwrap().push((token, record));
+        }
+
+        fn rollback_learning(&self, token: cheime_model::CommitToken) {
+            *self.cancel_attempts.lock().unwrap() += 1;
+            let mut cancelled = self.cancelled.lock().unwrap();
+            if !cancelled.contains(&token) {
+                cancelled.push(token);
+            }
         }
     }
 
@@ -850,6 +884,28 @@ mod tests {
             })
             .unwrap();
         assert!(staged.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn rollback_is_forwarded_idempotently() {
+        let pipeline = RecordingLearningPipeline::default();
+        let attempts = Arc::clone(&pipeline.cancel_attempts);
+        let cancelled = Arc::clone(&pipeline.cancelled);
+        let mut session = Session::new(initial_header(), pipeline);
+        let token = cheime_model::CommitToken {
+            session: SessionId::new(2),
+            epoch: SessionEpoch::new(3),
+            action_id: ActionId::new(1),
+        };
+        for sequence in [1, 2] {
+            let mut header = initial_header();
+            header.sequence = Sequence::new(sequence);
+            session
+                .handle(FrontendMessage::RollbackLearning { header, token })
+                .unwrap();
+        }
+        assert_eq!(*attempts.lock().unwrap(), 2);
+        assert_eq!(*cancelled.lock().unwrap(), vec![token]);
     }
 
     #[test]

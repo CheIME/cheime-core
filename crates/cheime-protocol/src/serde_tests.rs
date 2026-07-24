@@ -1,8 +1,8 @@
 use super::*;
 use cheime_model::{
-    ActionId, Candidate, CandidateId, CandidateSnapshot, DeploymentGeneration, Key, KeyEvent,
-    KeyState, PlatformAction, PlatformActionKind, PlatformActionOutcome, PlatformActionResult,
-    Revision, SessionEpoch, SessionStatus, UiCommand,
+    ActionId, Candidate, CandidateId, CandidateSnapshot, CommitToken, DeploymentGeneration, Key,
+    KeyEvent, KeyState, PlatformAction, PlatformActionKind, PlatformActionOutcome,
+    PlatformActionResult, Revision, SessionEpoch, SessionStatus, UiCommand,
 };
 
 fn make_header() -> MessageHeader {
@@ -85,6 +85,21 @@ fn frontend_platform_action_result_round_trip() {
         result: PlatformActionResult {
             action_id: ActionId::new(7),
             outcome: PlatformActionOutcome::Applied,
+        },
+    };
+    let json = serde_json::to_string(&msg).unwrap();
+    let back: FrontendMessage = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, msg);
+}
+
+#[test]
+fn rollback_learning_round_trip() {
+    let msg = FrontendMessage::RollbackLearning {
+        header: make_header(),
+        token: CommitToken {
+            session: SessionId::new(2),
+            epoch: SessionEpoch::new(3),
+            action_id: ActionId::new(4),
         },
     };
     let json = serde_json::to_string(&msg).unwrap();
