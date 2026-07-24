@@ -5,6 +5,8 @@
 //! use `ComposablePipeline` directly with `PinyinSegmentor`.
 
 use crate::{InputPipeline, PipelineError, PipelineIntent, PipelineUpdate};
+use crate::decoder::ResolvedCandidate;
+use crate::segmentation::InputSpan;
 use cheime_model::{Candidate, CandidateId, KeyEvent};
 use std::collections::BTreeMap;
 
@@ -41,18 +43,26 @@ impl BuiltinPipeline {
         Self { entries: grouped }
     }
 
-    fn candidates(&self, composition: &str) -> Vec<Candidate> {
+    fn candidates(&self, composition: &str) -> Vec<ResolvedCandidate> {
         self.entries
             .get(composition)
             .into_iter()
             .flatten()
             .enumerate()
-            .map(|(index, entry)| Candidate {
-                id: CandidateId::new(index as u64 + 1),
-                text: entry.text.clone(),
-                annotation: Some(composition.to_owned()),
-                source: String::from("builtin"),
-                is_emoji: false,
+            .map(|(index, entry)| {
+                ResolvedCandidate::from_display(
+                    Candidate {
+                        id: CandidateId::new(index as u64 + 1),
+                        text: entry.text.clone(),
+                        annotation: Some(composition.to_owned()),
+                        source: String::from("builtin"),
+                        is_emoji: false,
+                    },
+                    InputSpan::new(0, composition.len()),
+                    composition.to_owned(),
+                    true,
+                    entry.weight,
+                )
             })
             .collect()
     }
@@ -83,6 +93,10 @@ impl InputPipeline for BuiltinPipeline {
             composition: next,
             intent,
         })
+    }
+
+    fn refresh(&self, composition: &str) -> Result<Vec<ResolvedCandidate>, PipelineError> {
+        Ok(self.candidates(composition))
     }
 }
 

@@ -10,7 +10,7 @@
 //! All conversion data is loaded from external files. Nothing is hard-coded.
 
 use crate::Filter;
-use cheime_model::Candidate;
+use crate::decoder::ResolvedCandidate;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -127,7 +127,7 @@ impl Filter for SimplifierFilter {
         }
     }
 
-    fn filter(&self, candidates: Vec<Candidate>) -> Vec<Candidate> {
+    fn filter(&self, candidates: Vec<ResolvedCandidate>) -> Vec<ResolvedCandidate> {
         let mut seen: HashMap<String, bool> = HashMap::new();
         let mut result = Vec::with_capacity(candidates.len());
 
@@ -145,6 +145,9 @@ impl Filter for SimplifierFilter {
                 c.source = format!("{}→{}", c.source, tag);
             }
             c.text = converted;
+            for lexeme in &mut c.lexemes {
+                lexeme.text = self.convert(&lexeme.text);
+            }
             if seen.contains_key(&c.text) {
                 continue;
             }
@@ -158,7 +161,18 @@ impl Filter for SimplifierFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cheime_model::CandidateId;
+    use crate::segmentation::InputSpan;
+    use cheime_model::{Candidate, CandidateId};
+
+    fn candidate(id: u64, text: &str, source: &str) -> ResolvedCandidate {
+        ResolvedCandidate::from_display(
+            Candidate::text(CandidateId::new(id), text, source),
+            InputSpan::new(0, 1),
+            String::from("x"),
+            true,
+            0,
+        )
+    }
 
     fn sample_s2t() -> SimplifierFilter {
         let mut map = HashMap::new();
@@ -179,7 +193,7 @@ mod tests {
     #[test]
     fn s2t_converts_text() {
         let f = sample_s2t();
-        let cands = vec![Candidate::text(CandidateId::new(1), "爱国", "dict")];
+        let cands = vec![candidate(1, "爱国", "dict")];
         let result = f.filter(cands);
         assert_eq!(result[0].text, "愛國");
         assert_eq!(result[0].source, "dict");
@@ -188,7 +202,7 @@ mod tests {
     #[test]
     fn s2t_annotates_source() {
         let f = sample_with_annotate();
-        let cands = vec![Candidate::text(CandidateId::new(1), "爱国", "dict:abc")];
+        let cands = vec![candidate(1, "爱国", "dict:abc")];
         let result = f.filter(cands);
         assert_eq!(result[0].text, "愛國");
         assert!(
@@ -204,7 +218,7 @@ mod tests {
         map.insert('愛', "爱".into());
         map.insert('國', "国".into());
         let f = SimplifierFilter::from_table(map, Conversion::T2S, false);
-        let cands = vec![Candidate::text(CandidateId::new(1), "愛國", "dict")];
+        let cands = vec![candidate(1, "愛國", "dict")];
         let result = f.filter(cands);
         assert_eq!(result[0].text, "爱国");
     }
@@ -218,7 +232,7 @@ mod tests {
     #[test]
     fn no_conversion_needed() {
         let f = sample_with_annotate();
-        let cands = vec![Candidate::text(CandidateId::new(1), "hello", "dict")];
+        let cands = vec![candidate(1, "hello", "dict")];
         let result = f.filter(cands);
         assert_eq!(result[0].text, "hello");
         assert_eq!(result[0].source, "dict");
@@ -228,7 +242,7 @@ mod tests {
     fn parse_tsv_table() {
         let tsv = "# comment\n爱\t愛\n国\t國\n";
         let f = SimplifierFilter::parse(tsv, Conversion::S2T, false).unwrap();
-        let cands = vec![Candidate::text(CandidateId::new(1), "爱国", "dict")];
+        let cands = vec![candidate(1, "爱国", "dict")];
         assert_eq!(f.filter(cands)[0].text, "愛國");
     }
 

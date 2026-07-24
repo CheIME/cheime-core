@@ -4,7 +4,7 @@
 //! cannot split the composition (e.g. non-pinyin input).
 
 use crate::{CodeSegment, Translator};
-use crate::decoder::{Decoder, Lexicon};
+use crate::decoder::{Decoder, Lexicon, ResolvedCandidate};
 use crate::segmentation::SegmentationGraph;
 use cheime_dictionary::CompiledIndex;
 use cheime_model::Candidate;
@@ -51,13 +51,9 @@ impl Translator for DictTranslator {
         }
     }
 
-    fn translate_graph(&self, graph: &SegmentationGraph) -> Vec<Candidate> {
+    fn translate_graph(&self, graph: &SegmentationGraph) -> Vec<ResolvedCandidate> {
         let lexicon: Arc<dyn Lexicon> = self.index.clone();
-        Decoder::new(vec![lexicon])
-            .decode("", graph)
-            .into_iter()
-            .map(|candidate| candidate.display)
-            .collect()
+        Decoder::new(vec![lexicon]).decode("", graph)
     }
 }
 

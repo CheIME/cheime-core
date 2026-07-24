@@ -2,6 +2,7 @@ use crate::segmentation::{InputSpan, SegmentationGraph, SyllableEdge, SyllableKi
 use cheime_dictionary::{CompiledIndex, LexiconEntry};
 use cheime_model::{Candidate, CandidateId};
 use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 const BEAM_WIDTH: usize = 32;
@@ -55,6 +56,47 @@ pub struct ResolvedCandidate {
     pub exact_phrase: bool,
     pub completion: bool,
     pub score: i64,
+}
+
+impl ResolvedCandidate {
+    pub fn from_display(
+        display: Candidate,
+        consumed: InputSpan,
+        canonical_code: String,
+        complete: bool,
+        score: i64,
+    ) -> Self {
+        let lexeme = SelectedLexeme {
+            text: display.text.clone(),
+            canonical_code: canonical_code.clone(),
+            weight: score,
+            source: display.source.clone(),
+        };
+        Self {
+            display,
+            consumed,
+            canonical_code,
+            lexemes: vec![lexeme],
+            complete,
+            exact_phrase: true,
+            completion: false,
+            score,
+        }
+    }
+}
+
+impl Deref for ResolvedCandidate {
+    type Target = Candidate;
+
+    fn deref(&self) -> &Self::Target {
+        &self.display
+    }
+}
+
+impl DerefMut for ResolvedCandidate {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.display
+    }
 }
 
 pub struct Decoder {

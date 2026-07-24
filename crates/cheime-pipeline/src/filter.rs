@@ -1,8 +1,8 @@
 //! Candidate filters: deduplication, etc.
 
 use crate::Filter;
-use cheime_model::Candidate;
-use std::collections::HashSet;
+use crate::decoder::ResolvedCandidate;
+use std::collections::HashMap;
 
 /// Removes duplicate candidates by text, keeping the first occurrence
 /// (which typically comes from the highest-priority translator).
@@ -20,28 +20,43 @@ impl Filter for DedupFilter {
         "dedup"
     }
 
-    fn filter(&self, candidates: Vec<Candidate>) -> Vec<Candidate> {
-        let mut seen = HashSet::with_capacity(candidates.len());
-        candidates
-            .into_iter()
-            .filter(|c| seen.insert(c.text.clone()))
-            .collect()
+    fn filter(&self, candidates: Vec<ResolvedCandidate>) -> Vec<ResolvedCandidate> {
+        let mut positions: HashMap<String, usize> = HashMap::with_capacity(candidates.len());
+        let mut deduped: Vec<ResolvedCandidate> = Vec::with_capacity(candidates.len());
+        for candidate in candidates {
+            if let Some(index) = positions.get(&candidate.text).copied() {
+                if candidate.score > deduped[index].score {
+                    deduped[index] = candidate;
+                }
+            } else {
+                positions.insert(candidate.text.clone(), deduped.len());
+                deduped.push(candidate);
+            }
+        }
+        deduped
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cheime_model::CandidateId;
+    use crate::segmentation::InputSpan;
+    use cheime_model::{Candidate, CandidateId};
 
-    fn c(text: &str, source: &str, id: u64) -> Candidate {
-        Candidate {
-            id: CandidateId::new(id),
-            text: text.into(),
-            annotation: None,
-            source: source.into(),
-            is_emoji: false,
-        }
+    fn c(text: &str, source: &str, id: u64) -> ResolvedCandidate {
+        ResolvedCandidate::from_display(
+            Candidate {
+                id: CandidateId::new(id),
+                text: text.into(),
+                annotation: None,
+                source: source.into(),
+                is_emoji: false,
+            },
+            InputSpan::new(0, 1),
+            String::from("x"),
+            true,
+            0,
+        )
     }
 
     #[test]
@@ -81,7 +96,13 @@ mod tests {
     fn dedup_emoji_with_same_text_as_word() {
         let filter = DedupFilter::new();
         // The text differs: "👍" vs "赞" — should keep both
-        let emoji = Candidate::emoji(CandidateId::new(1), "👍");
+        let emoji = ResolvedCandidate::from_display(
+            Candidate::emoji(CandidateId::new(1), "👍"),
+            InputSpan::new(0, 1),
+            String::from("x"),
+            true,
+            0,
+        );
         let word = c("赞", "dict", 2);
         let input = vec![emoji.clone(), word.clone()];
         let result = filter.filter(input);

@@ -4,7 +4,7 @@
 //! Rime sorts within each translator independently; no unified re-rank.
 
 use crate::Ranker;
-use cheime_model::Candidate;
+use crate::decoder::ResolvedCandidate;
 use std::cmp::Ordering;
 
 #[derive(Clone, Debug)]
@@ -32,8 +32,9 @@ impl UnifiedRanker {
         Self { weights }
     }
 
-    fn score(&self, c: &Candidate) -> f64 {
-        let mut s = source_priority(&c.source) * self.weights.source;
+    fn score(&self, c: &ResolvedCandidate) -> f64 {
+        let mut s = c.score as f64;
+        s += source_priority(&c.source) * self.weights.source;
         s += self.weights.code_length * (1.0 / (c.text.chars().count() as f64).max(1.0));
         if c.is_emoji {
             s += 0.05;
@@ -60,7 +61,7 @@ impl Ranker for UnifiedRanker {
     fn name(&self) -> &str {
         "unified"
     }
-    fn rank(&self, mut candidates: Vec<Candidate>) -> Vec<Candidate> {
+    fn rank(&self, mut candidates: Vec<ResolvedCandidate>) -> Vec<ResolvedCandidate> {
         candidates.sort_by(|a, b| {
             self.score(b)
                 .partial_cmp(&self.score(a))
@@ -73,14 +74,25 @@ impl Ranker for UnifiedRanker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cheime_model::CandidateId;
+    use crate::segmentation::InputSpan;
+    use cheime_model::{Candidate, CandidateId};
+
+    fn candidate(id: u64, text: &str, source: &str) -> ResolvedCandidate {
+        ResolvedCandidate::from_display(
+            Candidate::text(CandidateId::new(id), text, source),
+            InputSpan::new(0, 1),
+            String::from("x"),
+            true,
+            0,
+        )
+    }
 
     #[test]
     fn user_source_ranks_higher() {
         let r = UnifiedRanker::new(RankWeights::default());
         let input = vec![
-            Candidate::text(CandidateId::new(1), "中国", "dict:abc"),
-            Candidate::text(CandidateId::new(2), "中国", "user_dict"),
+            candidate(1, "中国", "dict:abc"),
+            candidate(2, "中国", "user_dict"),
         ];
         let result = r.rank(input);
         assert_eq!(result[0].source, "user_dict");
@@ -90,8 +102,14 @@ mod tests {
     fn emoji_ranks_below_dict() {
         let r = UnifiedRanker::new(RankWeights::default());
         let input = vec![
-            Candidate::emoji(CandidateId::new(1), "😄"),
-            Candidate::text(CandidateId::new(2), "笑", "dict:abc"),
+            ResolvedCandidate::from_display(
+                Candidate::emoji(CandidateId::new(1), "😄"),
+                InputSpan::new(0, 1),
+                String::from("x"),
+                true,
+                0,
+            ),
+            candidate(2, "笑", "dict:abc"),
         ];
         let result = r.rank(input);
         assert_eq!(result[0].text, "笑");
@@ -104,8 +122,8 @@ mod tests {
             ..Default::default()
         });
         let input = vec![
-            Candidate::text(CandidateId::new(1), "中华人民共和国", "dict"),
-            Candidate::text(CandidateId::new(2), "中国", "dict"),
+            candidate(1, "中华人民共和国", "dict"),
+            candidate(2, "中国", "dict"),
         ];
         let result = r.rank(input);
         assert_eq!(result[0].text, "中国");
@@ -119,8 +137,8 @@ mod tests {
             code_length: 0.0,
         }); // disable code_length
         let input = vec![
-            Candidate::text(CandidateId::new(1), "中A", "builtin"), // 0.7
-            Candidate::text(CandidateId::new(2), "中B", "dict:abc→simplified"), // annotated, should be 0.8
+            candidate(1, "中A", "builtin"), // 0.7
+            candidate(2, "中B", "dict:abc→simplified"), // annotated, should be 0.8
         ];
         let result = r.rank(input);
         assert_eq!(
@@ -132,8 +150,8 @@ mod tests {
     fn annotated_dict_source_ranks_above_builtin() {
         let r = UnifiedRanker::new(RankWeights::default());
         let input = vec![
-            Candidate::text(CandidateId::new(1), "中国", "builtin"),
-            Candidate::text(CandidateId::new(2), "中国", "dict:abc→simplified"),
+            candidate(1, "中国", "builtin"),
+            candidate(2, "中国", "dict:abc→simplified"),
         ];
         let result = r.rank(input);
         assert_eq!(
@@ -146,8 +164,8 @@ mod tests {
     fn annotated_user_source_still_top() {
         let r = UnifiedRanker::new(RankWeights::default());
         let input = vec![
-            Candidate::text(CandidateId::new(1), "中国", "dict:abc→simplified"),
-            Candidate::text(CandidateId::new(2), "中国", "user:abc→simplified"),
+            candidate(1, "中国", "dict:abc→simplified"),
+            candidate(2, "中国", "user:abc→simplified"),
         ];
         let result = r.rank(input);
         assert_eq!(
@@ -160,10 +178,10 @@ mod tests {
     fn multiple_annotated_sources_rank_correctly() {
         let r = UnifiedRanker::new(RankWeights::default());
         let input = vec![
-            Candidate::text(CandidateId::new(1), "中国", "unknown:x"),
-            Candidate::text(CandidateId::new(2), "中国", "emoji"),
-            Candidate::text(CandidateId::new(3), "中国", "dict:s2t→traditional"),
-            Candidate::text(CandidateId::new(4), "中国", "user_dict→simplified"),
+            candidate(1, "中国", "unknown:x"),
+            candidate(2, "中国", "emoji"),
+            candidate(3, "中国", "dict:s2t→traditional"),
+            candidate(4, "中国", "user_dict→simplified"),
         ];
         let result = r.rank(input);
         let sources: Vec<&str> = result.iter().map(|c| c.source.as_str()).collect();

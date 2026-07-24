@@ -4,6 +4,8 @@ use cheime_model::{
     PlatformActionOutcome, Revision, SessionStatus, UiCommand,
 };
 use cheime_pipeline::{InputPipeline, PipelineIntent};
+use cheime_pipeline::decoder::{ResolvedCandidate, SelectedLexeme};
+use cheime_pipeline::segmentation::InputSpan;
 use cheime_protocol::{EngineMessage, FrontendMessage, MessageHeader};
 use std::collections::BTreeMap;
 
@@ -16,12 +18,61 @@ enum PendingEffect {
     KeepComposition,
 }
 
+#[derive(Clone, Debug)]
+struct ConfirmedSegment {
+    text: String,
+    raw_span: InputSpan,
+    canonical_code: String,
+    lexemes: Vec<SelectedLexeme>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct CompositionState {
+    raw: String,
+    active_start: usize,
+    confirmed: Vec<ConfirmedSegment>,
+}
+
+impl CompositionState {
+    fn active_input(&self) -> &str {
+        &self.raw[self.active_start..]
+    }
+
+    fn display_text(&self) -> String {
+        let mut display = self
+            .confirmed
+            .iter()
+            .map(|segment| segment.text.as_str())
+            .collect::<String>();
+        display.push_str(self.active_input());
+        display
+    }
+
+    fn confirmed_text(&self) -> String {
+        self.confirmed
+            .iter()
+            .map(|segment| segment.text.as_str())
+            .collect()
+    }
+
+    fn replace_active(&mut self, active: &str) {
+        self.raw.truncate(self.active_start);
+        self.raw.push_str(active);
+    }
+
+    fn clear(&mut self) {
+        self.raw.clear();
+        self.active_start = 0;
+        self.confirmed.clear();
+    }
+}
+
 pub struct Session<P> {
     identity: MessageHeader,
     pipeline: P,
-    composition: String,
+    composition: CompositionState,
     /// Full candidate list (before pagination).
-    candidates: Vec<cheime_model::Candidate>,
+    candidates: Vec<ResolvedCandidate>,
     /// Index into `candidates` of the currently highlighted entry.
     highlighted_idx: usize,
     /// Current page index (0-based).
@@ -42,7 +93,7 @@ impl<P: InputPipeline> Session<P> {
             last_sequence: identity.sequence,
             identity,
             pipeline,
-            composition: String::new(),
+            composition: CompositionState::default(),
             candidates: Vec::new(),
             highlighted_idx: 0,
             page: 0,
@@ -54,7 +105,22 @@ impl<P: InputPipeline> Session<P> {
 
     #[must_use]
     pub fn composition(&self) -> &str {
-        &self.composition
+        &self.composition.raw
+    }
+
+    #[must_use]
+    pub fn composition_text(&self) -> String {
+        self.composition.display_text()
+    }
+
+    #[must_use]
+    pub fn active_input(&self) -> &str {
+        self.composition.active_input()
+    }
+
+    #[cfg(test)]
+    fn confirmed_segments(&self) -> &[ConfirmedSegment] {
+        &self.composition.confirmed
     }
 
     // ── Message dispatch ──────────────────────────────────────────────
@@ -117,7 +183,14 @@ impl<P: InputPipeline> Session<P> {
         &mut self,
         event: cheime_model::KeyEvent,
     ) -> Result<Vec<EngineMessage>, SessionError> {
-        let update = self.pipeline.apply(&self.composition, &event)?;
+        if matches!(event.key, cheime_model::Key::Backspace)
+            && self.composition.active_input().is_empty()
+            && !self.composition.confirmed.is_empty()
+        {
+            return self.reopen_last_confirmed();
+        }
+
+        let update = self.pipeline.apply(self.composition.active_input(), &event)?;
         match update.intent {
             PipelineIntent::CommitHighlighted => self.propose_commit(),
             PipelineIntent::CommitRaw => self.propose_commit_raw(),
@@ -125,16 +198,17 @@ impl<P: InputPipeline> Session<P> {
             PipelineIntent::CommitText(text) => self.propose_commit_text(&text),
             PipelineIntent::None => {
                 self.revision = self.revision.next().ok_or(SessionError::RevisionOverflow)?;
-                self.composition = update.composition;
+                self.composition.replace_active(&update.composition);
                 self.candidates = update.candidates;
                 // Reset pagination when composition changes
                 self.highlighted_idx = 0;
                 self.page = 0;
 
+                let preedit = self.composition.display_text();
                 let action = self.new_action(
                     PlatformActionKind::SetPreedit {
-                        text: self.composition.clone(),
-                        cursor: self.composition.len(),
+                        cursor: preedit.len(),
+                        text: preedit,
                     },
                     PendingEffect::KeepComposition,
                 );
@@ -155,21 +229,13 @@ impl<P: InputPipeline> Session<P> {
         match command {
             UiCommand::SelectCandidate { candidate_id, .. } => {
                 // Find the candidate by ID in the full list
-                let text = self
+                let candidate = self
                     .candidates
                     .iter()
                     .find(|c| c.id == candidate_id)
-                    .map(|c| c.text.clone())
+                    .cloned()
                     .ok_or(SessionError::NoCandidate)?;
-
-                let action = self.new_action(
-                    PlatformActionKind::Commit { text },
-                    PendingEffect::ClearComposition,
-                );
-                Ok(vec![
-                    self.action_message(action),
-                    self.snapshot_message(SessionStatus::CommitPending),
-                ])
+                self.select_candidate(candidate)
             }
             UiCommand::MoveHighlight(delta) => {
                 if self.candidates.is_empty() {
@@ -214,7 +280,10 @@ impl<P: InputPipeline> Session<P> {
             return Vec::new();
         }
         let end = (start + self.page_size).min(self.candidates.len());
-        self.candidates[start..end].to_vec()
+        self.candidates[start..end]
+            .iter()
+            .map(|candidate| candidate.display.clone())
+            .collect()
     }
 
     fn current_highlight_id(&self) -> Option<CandidateId> {
@@ -234,12 +303,10 @@ impl<P: InputPipeline> Session<P> {
     // ── Commit / Cancel ───────────────────────────────────────────────
 
     fn propose_commit(&mut self) -> Result<Vec<EngineMessage>, SessionError> {
-        // Prefer highlighted candidate; fall back to raw composition (predict).
-        let text = self
-            .candidates
-            .get(self.highlighted_idx)
-            .map(|c| c.text.clone())
-            .unwrap_or_else(|| self.composition.clone());
+        if let Some(candidate) = self.candidates.get(self.highlighted_idx).cloned() {
+            return self.select_candidate(candidate);
+        }
+        let text = self.composition.display_text();
         if text.is_empty() {
             // Nothing to commit — just cancel the composition silently.
             return self.propose_cancel();
@@ -262,9 +329,10 @@ impl<P: InputPipeline> Session<P> {
         Ok(vec![self.action_message(action)])
     }
     fn propose_commit_text(&mut self, text: &str) -> Result<Vec<EngineMessage>, SessionError> {
+        let text = format!("{}{}", self.composition.confirmed_text(), text);
         let action = self.new_action(
             PlatformActionKind::Commit {
-                text: text.to_owned(),
+                text,
             },
             PendingEffect::ClearComposition,
         );
@@ -275,7 +343,7 @@ impl<P: InputPipeline> Session<P> {
     }
     /// Commit the raw composition text as-is (Enter key / predict mode).
     fn propose_commit_raw(&mut self) -> Result<Vec<EngineMessage>, SessionError> {
-        let text = self.composition.clone();
+        let text = self.composition.display_text();
         if text.is_empty() {
             return self.propose_cancel();
         }
@@ -288,6 +356,76 @@ impl<P: InputPipeline> Session<P> {
             self.snapshot_message(SessionStatus::CommitPending),
         ])
     }
+
+    fn select_candidate(
+        &mut self,
+        candidate: ResolvedCandidate,
+    ) -> Result<Vec<EngineMessage>, SessionError> {
+        if candidate.complete {
+            let text = format!("{}{}", self.composition.confirmed_text(), candidate.text);
+            let action = self.new_action(
+                PlatformActionKind::Commit { text },
+                PendingEffect::ClearComposition,
+            );
+            return Ok(vec![
+                self.action_message(action),
+                self.snapshot_message(SessionStatus::CommitPending),
+            ]);
+        }
+
+        let active_len = self.composition.active_input().len();
+        if candidate.consumed.start != 0
+            || candidate.consumed.end == 0
+            || candidate.consumed.end > active_len
+        {
+            return Err(SessionError::NoCandidate);
+        }
+        let absolute_start = self.composition.active_start;
+        let absolute_end = absolute_start + candidate.consumed.end;
+        self.composition.confirmed.push(ConfirmedSegment {
+            text: candidate.text.clone(),
+            raw_span: InputSpan::new(absolute_start, absolute_end),
+            canonical_code: candidate.canonical_code,
+            lexemes: candidate.lexemes,
+        });
+        self.composition.active_start = absolute_end;
+        self.revision = self.revision.next().ok_or(SessionError::RevisionOverflow)?;
+        self.refresh_active_candidates()?;
+        self.preedit_update()
+    }
+
+    fn reopen_last_confirmed(&mut self) -> Result<Vec<EngineMessage>, SessionError> {
+        let Some(segment) = self.composition.confirmed.pop() else {
+            return Ok(Vec::new());
+        };
+        self.composition.active_start = segment.raw_span.start;
+        self.revision = self.revision.next().ok_or(SessionError::RevisionOverflow)?;
+        self.refresh_active_candidates()?;
+        self.preedit_update()
+    }
+
+    fn refresh_active_candidates(&mut self) -> Result<(), SessionError> {
+        self.candidates = self.pipeline.refresh(self.composition.active_input())?;
+        self.highlighted_idx = 0;
+        self.page = 0;
+        Ok(())
+    }
+
+    fn preedit_update(&mut self) -> Result<Vec<EngineMessage>, SessionError> {
+        let preedit = self.composition.display_text();
+        let action = self.new_action(
+            PlatformActionKind::SetPreedit {
+                cursor: preedit.len(),
+                text: preedit,
+            },
+            PendingEffect::KeepComposition,
+        );
+        Ok(vec![
+            self.action_message(action),
+            self.snapshot_message(SessionStatus::Composing),
+        ])
+    }
+
     fn handle_action_result(
         &mut self,
         result: cheime_model::PlatformActionResult,
@@ -331,14 +469,15 @@ impl<P: InputPipeline> Session<P> {
     }
 
     fn snapshot_message(&self, status: SessionStatus) -> EngineMessage {
+        let preedit = self.composition.display_text();
         EngineMessage::CandidateSnapshot {
             header: self.output_header(),
             snapshot: CandidateSnapshot {
                 epoch: self.identity.epoch,
                 revision: self.revision,
                 deployment: self.identity.deployment,
-                preedit: self.composition.clone(),
-                cursor: self.composition.len(),
+                cursor: preedit.len(),
+                preedit,
                 candidates: self.page_candidates(),
                 highlighted: self.current_highlight_id(),
                 status,
@@ -369,6 +508,74 @@ mod tests {
         PlatformActionOutcome, PlatformActionResult, Revision, Sequence, SessionEpoch, SessionId,
     };
     use cheime_pipeline::BuiltinPipeline;
+    use cheime_pipeline::decoder::{ResolvedCandidate, SelectedLexeme};
+    use cheime_pipeline::segmentation::InputSpan;
+    use cheime_pipeline::{InputPipeline, PipelineError, PipelineIntent, PipelineUpdate};
+
+    #[derive(Clone, Debug, Default)]
+    struct PartialPipeline;
+
+    impl PartialPipeline {
+        fn candidates(composition: &str) -> Vec<ResolvedCandidate> {
+            match composition {
+                "nihao" => vec![ResolvedCandidate {
+                    display: cheime_model::Candidate::text(
+                        CandidateId::new(1),
+                        "旎",
+                        "test",
+                    ),
+                    consumed: InputSpan::new(0, 2),
+                    canonical_code: String::from("ni"),
+                    lexemes: vec![SelectedLexeme::test("旎", "ni")],
+                    complete: false,
+                    exact_phrase: true,
+                    completion: false,
+                    score: 90,
+                }],
+                "hao" => vec![ResolvedCandidate {
+                    display: cheime_model::Candidate::text(
+                        CandidateId::new(1),
+                        "皓",
+                        "test",
+                    ),
+                    consumed: InputSpan::new(0, 3),
+                    canonical_code: String::from("hao"),
+                    lexemes: vec![SelectedLexeme::test("皓", "hao")],
+                    complete: true,
+                    exact_phrase: true,
+                    completion: false,
+                    score: 80,
+                }],
+                _ => Vec::new(),
+            }
+        }
+    }
+
+    impl InputPipeline for PartialPipeline {
+        fn apply(
+            &self,
+            composition: &str,
+            event: &KeyEvent,
+        ) -> Result<PipelineUpdate, PipelineError> {
+            let mut next = composition.to_owned();
+            match event.key {
+                Key::Character(character) => next.push(character),
+                Key::Backspace => {
+                    next.pop();
+                }
+                _ => {}
+            }
+            Ok(PipelineUpdate {
+                candidates: Self::candidates(&next),
+                composition: next,
+                intent: PipelineIntent::None,
+            })
+        }
+
+        fn refresh(&self, composition: &str) -> Result<Vec<ResolvedCandidate>, PipelineError> {
+            Ok(Self::candidates(composition))
+        }
+    }
 
     fn initial_header() -> MessageHeader {
         MessageHeader {
@@ -388,6 +595,120 @@ mod tests {
             (String::from("ni"), String::from("尼"), 5),
             (String::from("ni"), String::from("泥"), 3),
         ])
+    }
+
+    fn type_text<P: InputPipeline>(
+        session: &mut Session<P>,
+        text: &str,
+        mut sequence: u64,
+        mut revision: u64,
+    ) -> (u64, u64) {
+        for character in text.chars() {
+            session
+                .handle(key_message(sequence, revision, Key::Character(character)))
+                .unwrap();
+            sequence += 1;
+            revision += 1;
+        }
+        (sequence, revision)
+    }
+
+    #[test]
+    fn selecting_prefix_keeps_remaining_input_composing() {
+        let mut session = Session::new(initial_header(), PartialPipeline);
+        let (sequence, revision) = type_text(&mut session, "nihao", 1, 0);
+        let output = session
+            .handle(ui_message(
+                sequence,
+                revision,
+                UiCommand::SelectCandidate {
+                    epoch: SessionEpoch::new(3),
+                    snapshot_revision: Revision::new(revision),
+                    candidate_id: CandidateId::new(1),
+                },
+            ))
+            .unwrap();
+        assert!(output.iter().all(|message| !matches!(
+            message,
+            EngineMessage::PlatformAction {
+                action: PlatformAction {
+                    kind: PlatformActionKind::Commit { .. },
+                    ..
+                },
+                ..
+            }
+        )));
+        assert_eq!(session.composition_text(), "旎hao");
+        assert_eq!(session.active_input(), "hao");
+    }
+
+    #[test]
+    fn selecting_final_segment_commits_the_composed_phrase() {
+        let mut session = Session::new(initial_header(), PartialPipeline);
+        let (sequence, revision) = type_text(&mut session, "nihao", 1, 0);
+        session
+            .handle(ui_message(
+                sequence,
+                revision,
+                UiCommand::SelectCandidate {
+                    epoch: SessionEpoch::new(3),
+                    snapshot_revision: Revision::new(revision),
+                    candidate_id: CandidateId::new(1),
+                },
+            ))
+            .unwrap();
+        let output = session
+            .handle(ui_message(
+                sequence + 1,
+                revision + 1,
+                UiCommand::SelectCandidate {
+                    epoch: SessionEpoch::new(3),
+                    snapshot_revision: Revision::new(revision + 1),
+                    candidate_id: CandidateId::new(1),
+                },
+            ))
+            .unwrap();
+        assert!(matches!(
+            &output[0],
+            EngineMessage::PlatformAction {
+                action: PlatformAction {
+                    kind: PlatformActionKind::Commit { text },
+                    ..
+                },
+                ..
+            } if text == "旎皓"
+        ));
+    }
+
+    #[test]
+    fn backspace_reopens_last_confirmed_segment_after_active_input_is_empty() {
+        let mut session = Session::new(initial_header(), PartialPipeline);
+        let (mut sequence, mut revision) = type_text(&mut session, "nihao", 1, 0);
+        session
+            .handle(ui_message(
+                sequence,
+                revision,
+                UiCommand::SelectCandidate {
+                    epoch: SessionEpoch::new(3),
+                    snapshot_revision: Revision::new(revision),
+                    candidate_id: CandidateId::new(1),
+                },
+            ))
+            .unwrap();
+        sequence += 1;
+        revision += 1;
+        for _ in 0..3 {
+            session
+                .handle(key_message(sequence, revision, Key::Backspace))
+                .unwrap();
+            sequence += 1;
+            revision += 1;
+        }
+        session
+            .handle(key_message(sequence, revision, Key::Backspace))
+            .unwrap();
+        assert_eq!(session.composition_text(), "ni");
+        assert!(session.confirmed_segments().is_empty());
     }
 
     fn key_message(sequence: u64, revision: u64, key: Key) -> FrontendMessage {

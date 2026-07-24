@@ -17,6 +17,8 @@ pub mod simplifier;
 pub mod translator;
 pub use builtin::BuiltinPipeline;
 use cheime_model::{Candidate, Key, KeyEvent};
+use cheime_model::CandidateId;
+use crate::decoder::{ResolvedCandidate, SelectedLexeme};
 use crate::normalizer::CodeNormalizer;
 use crate::key_mapper::KeyMapper;
 use crate::segmentation::SegmentationGraph;
@@ -35,7 +37,7 @@ pub enum PipelineIntent {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PipelineUpdate {
     pub composition: String,
-    pub candidates: Vec<Candidate>,
+    pub candidates: Vec<ResolvedCandidate>,
     pub intent: PipelineIntent,
 }
 
@@ -48,6 +50,10 @@ pub enum PipelineError {
 /// Top-level trait consumed by Session. All pipelines implement this.
 pub trait InputPipeline: Send + Sync {
     fn apply(&self, composition: &str, event: &KeyEvent) -> Result<PipelineUpdate, PipelineError>;
+
+    fn refresh(&self, _composition: &str) -> Result<Vec<ResolvedCandidate>, PipelineError> {
+        Ok(Vec::new())
+    }
 }
 
 // ── Component traits ────────────────────────────────────────────────
@@ -97,8 +103,25 @@ pub trait Translator: Send + Sync {
     /// dictionary lookups (e.g., segments ["ni", "hao"] → query "ni hao").
     fn translate(&self, segments: &[CodeSegment]) -> Vec<Candidate>;
 
-    fn translate_graph(&self, graph: &SegmentationGraph) -> Vec<Candidate> {
-        self.translate(&graph.primary_path())
+    fn translate_graph(&self, graph: &SegmentationGraph) -> Vec<ResolvedCandidate> {
+        let path = graph.primary_path();
+        let code = path
+            .iter()
+            .map(|segment| segment.code.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        self.translate(&path)
+            .into_iter()
+            .map(|candidate| {
+                ResolvedCandidate::from_display(
+                    candidate,
+                    crate::segmentation::InputSpan::new(0, graph.input_len()),
+                    code.clone(),
+                    true,
+                    0,
+                )
+            })
+            .collect()
     }
 }
 
@@ -106,14 +129,14 @@ pub trait Translator: Send + Sync {
 
 pub trait Filter: Send + Sync {
     fn name(&self) -> &str;
-    fn filter(&self, candidates: Vec<Candidate>) -> Vec<Candidate>;
+    fn filter(&self, candidates: Vec<ResolvedCandidate>) -> Vec<ResolvedCandidate>;
 }
 
 // ── Ranker ──────────────────────────────────────────────────────────
 
 pub trait Ranker: Send + Sync {
     fn name(&self) -> &str;
-    fn rank(&self, candidates: Vec<Candidate>) -> Vec<Candidate>;
+    fn rank(&self, candidates: Vec<ResolvedCandidate>) -> Vec<ResolvedCandidate>;
 }
 
 // ── ComposablePipeline ──────────────────────────────────────────────
@@ -162,26 +185,68 @@ impl InputPipeline for ComposablePipeline {
         }
         self.apply_internal(composition, event)
     }
+
+    fn refresh(&self, composition: &str) -> Result<Vec<ResolvedCandidate>, PipelineError> {
+        Ok(self.resolve_composition(composition, Vec::new()))
+    }
 }
 impl ComposablePipeline {
+    fn resolve_composition(
+        &self,
+        composition: &str,
+        injected: Vec<Candidate>,
+    ) -> Vec<ResolvedCandidate> {
+        let graph = self.segmentor.segment(composition);
+        let normalized = if let Some(normalizer) = &self.normalizer {
+            normalizer.normalize_graph(&graph)
+        } else {
+            graph
+        };
+        let path = normalized.primary_path();
+        let code = path
+            .iter()
+            .map(|segment| segment.code.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut candidates: Vec<ResolvedCandidate> = injected
+            .into_iter()
+            .map(|candidate| ResolvedCandidate {
+                consumed: crate::segmentation::InputSpan::new(0, normalized.input_len()),
+                canonical_code: code.clone(),
+                lexemes: vec![SelectedLexeme {
+                    text: candidate.text.clone(),
+                    canonical_code: code.clone(),
+                    weight: 0,
+                    source: candidate.source.clone(),
+                }],
+                display: candidate,
+                complete: true,
+                exact_phrase: true,
+                completion: false,
+                score: 0,
+            })
+            .collect();
+        for translator in &self.translators {
+            candidates.extend(translator.translate_graph(&normalized));
+        }
+        for filter in &self.filters {
+            candidates = filter.filter(candidates);
+        }
+        candidates = self.ranker.rank(candidates);
+        for (index, candidate) in candidates.iter_mut().enumerate() {
+            candidate.display.id = CandidateId::new(index as u64 + 1);
+        }
+        candidates
+    }
+
     fn apply_internal(&self, composition: &str, event: &KeyEvent) -> Result<PipelineUpdate, PipelineError> {
         let mut proc = self.processor.lock();
         let proc_out = proc.process(composition, event)?;
         if proc_out.consumed {
             return Ok(PipelineUpdate { composition: proc_out.composition, candidates: vec![], intent: proc_out.intent });
         }
-        let graph = self.segmentor.segment(&proc_out.composition);
-        let normalized = if let Some(n) = &self.normalizer {
-            n.normalize_graph(&graph)
-        } else {
-            graph
-        };
-        let mut candidates = proc_out.inject_candidates;
-        for t in &self.translators {
-            candidates.extend(t.translate_graph(&normalized));
-        }
-        for f in &self.filters { candidates = f.filter(candidates); }
-        candidates = self.ranker.rank(candidates);
+        let candidates =
+            self.resolve_composition(&proc_out.composition, proc_out.inject_candidates);
         Ok(PipelineUpdate { composition: proc_out.composition, candidates, intent: proc_out.intent })
     }
 }
