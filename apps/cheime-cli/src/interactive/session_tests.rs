@@ -1,29 +1,33 @@
+use super::{SessionDriver, drain::normalized_pinyin};
+use crate::interactive::app::AppState;
 use cheime_model::{
     CORE_PROTOCOL_VERSION, ClientInstanceId, DeploymentGeneration, Key, KeyEvent, KeyState,
-    PlatformActionKind, Revision, Sequence, SessionEpoch, SessionId, SessionStatus,
+    Revision, Sequence, SessionEpoch, SessionId, SessionStatus,
 };
-use cheime_pipeline::BuiltinPipeline;
+use cheime_pipeline::{
+    BuiltinPipeline, InputPipeline, PipelineError, PipelineIntent, PipelineUpdate,
+};
 use cheime_protocol::{EngineMessage, FrontendMessage, MessageHeader};
 use cheime_session::{Session, SessionError};
+use cheime_user_data::UserStore;
+use parking_lot::Mutex;
+use std::sync::Arc;
 
-use super::SessionDriver;
-use crate::interactive::log::RunId;
-
-fn header(sequence: u64, revision: u64) -> MessageHeader {
+fn header(sequence: u64) -> MessageHeader {
     MessageHeader {
         protocol_version: CORE_PROTOCOL_VERSION,
-        client: ClientInstanceId::new(10),
-        session: SessionId::new(20),
-        epoch: SessionEpoch::new(30),
+        client: ClientInstanceId::new(1),
+        session: SessionId::new(1),
+        epoch: SessionEpoch::new(1),
         sequence: Sequence::new(sequence),
-        revision: Revision::new(revision),
-        deployment: DeploymentGeneration::new(40),
+        revision: Revision::new(0),
+        deployment: DeploymentGeneration::new(1),
     }
 }
 
-fn key(sequence: u64, revision: u64, key: Key) -> FrontendMessage {
+fn key(sequence: u64, key: Key) -> FrontendMessage {
     FrontendMessage::KeyCommand {
-        header: header(sequence, revision),
+        header: header(sequence),
         event: KeyEvent {
             key,
             state: KeyState::default(),
@@ -31,69 +35,111 @@ fn key(sequence: u64, revision: u64, key: Key) -> FrontendMessage {
     }
 }
 
+fn driver() -> SessionDriver<BuiltinPipeline> {
+    let pipeline = BuiltinPipeline::new([(String::from("ni"), String::from("你"), 100)]);
+    SessionDriver::new(Session::new(header(0), pipeline))
+}
+
 #[test]
-fn sends_key_command_messages_in_session_order() {
-    // Given
-    let entries = [("n".to_owned(), "en".to_owned(), 100)];
-    let expected_session = Session::new(header(0, 0), BuiltinPipeline::new(entries.clone()));
-    let session = Session::new(header(0, 0), BuiltinPipeline::new(entries));
-    let mut expected_session = expected_session;
-    let mut driver = SessionDriver::new(session, RunId::new("run-legacy"));
-    let message = key(1, 0, Key::Character('n'));
+fn key_updates_snapshot_without_modifying_document() {
+    let mut driver = driver();
+    let mut state = AppState::new();
+    let store = Arc::new(Mutex::new(UserStore::new("test")));
 
-    // When
-    let expected_messages = expected_session.handle(message.clone()).unwrap();
     let messages = driver
-        .send_at(message, "2031-02-03T04:05:06.789Z".parse().unwrap())
-        .unwrap()
-        .messages;
+        .send_and_apply(key(1, Key::Character('n')), &mut state, &store)
+        .unwrap();
 
-    // Then
-    assert_eq!(messages, expected_messages);
-    assert_eq!(messages.len(), 2);
+    assert_eq!(state.document().text(), "");
+    assert_eq!(state.snapshot().unwrap().preedit, "n");
+    assert!(
+        messages
+            .iter()
+            .any(|message| matches!(message, EngineMessage::PlatformAction { .. }))
+    );
+}
+
+#[test]
+fn commit_is_applied_acknowledged_and_learned_once() {
+    let mut driver = driver();
+    let mut state = AppState::new();
+    let store = Arc::new(Mutex::new(UserStore::new("test")));
+
+    for (sequence, character) in [(1, 'n'), (2, 'i')] {
+        driver
+            .send_and_apply(key(sequence, Key::Character(character)), &mut state, &store)
+            .unwrap();
+    }
+    let messages = driver
+        .send_and_apply(key(3, Key::Enter), &mut state, &store)
+        .unwrap();
+
+    assert_eq!(state.document().text(), "你");
+    assert_eq!(state.snapshot().unwrap().status, SessionStatus::Ready);
+    assert!(messages.iter().any(|message| {
+        matches!(
+            message,
+            EngineMessage::CandidateSnapshot { snapshot, .. }
+                if snapshot.status == SessionStatus::CommitPending
+        )
+    }));
+    driver.finish_learning(&store);
+    let store = store.lock();
+    assert_eq!(store.frequency("quanpin", "你"), 1);
+    assert_eq!(store.query("ni")[0].text, "你");
+}
+
+#[test]
+fn stale_sequence_is_returned_directly() {
+    let mut driver = driver();
+    let mut state = AppState::new();
+    let store = Arc::new(Mutex::new(UserStore::new("test")));
+    driver
+        .send_and_apply(key(1, Key::Character('n')), &mut state, &store)
+        .unwrap();
+
+    let result = driver.send_and_apply(key(1, Key::Character('i')), &mut state, &store);
+
     assert!(matches!(
-        &messages[0],
-        EngineMessage::PlatformAction { action, .. }
-            if matches!(
-                &action.kind,
-                PlatformActionKind::SetPreedit { text, cursor }
-                    if text == "n" && *cursor == 1
-            )
-    ));
-    assert!(matches!(
-        &messages[1],
-        EngineMessage::CandidateSnapshot { snapshot, .. }
-            if snapshot.preedit == "n" && snapshot.status == SessionStatus::Composing
+        result,
+        Err(SessionError::StaleSequence { received, last })
+            if received == Sequence::new(1) && last == Sequence::new(1)
     ));
 }
 
 #[test]
-fn returns_stale_sequence_session_error() {
-    // Given
-    let session = Session::new(header(0, 0), BuiltinPipeline::new([]));
-    let mut driver = SessionDriver::new(session, RunId::new("run-legacy"));
-    let _ = driver
-        .send_at(
-            key(1, 0, Key::Character('n')),
-            "2031-02-03T04:05:06.789Z".parse().unwrap(),
-        )
+fn pipeline_can_lock_shared_user_store_during_dispatch() {
+    let store = Arc::new(Mutex::new(UserStore::new("shared")));
+    let pipeline = LockCheckingPipeline {
+        store: Arc::clone(&store),
+    };
+    let mut driver = SessionDriver::new(Session::new(header(0), pipeline));
+    let mut state = AppState::new();
+
+    driver
+        .send_and_apply(key(1, Key::Character('n')), &mut state, &store)
         .unwrap();
+}
 
-    // When
-    let result = driver.send_at(
-        key(1, 1, Key::Character('i')),
-        "2031-02-03T04:05:06.789Z".parse().unwrap(),
-    );
+#[test]
+fn learning_code_matches_segmented_user_dictionary_lookup() {
+    assert_eq!(normalized_pinyin("zhongguo"), "zhong guo");
+}
 
-    // Then
-    assert!(matches!(
-        result,
-        Err(super::SessionDispatchError::Session {
-            error: SessionError::StaleSequence {
-                received,
-                last,
-            },
-            ..
-        }) if received == Sequence::new(1) && last == Sequence::new(1)
-    ));
+struct LockCheckingPipeline {
+    store: Arc<Mutex<UserStore>>,
+}
+
+impl InputPipeline for LockCheckingPipeline {
+    fn apply(&self, composition: &str, _event: &KeyEvent) -> Result<PipelineUpdate, PipelineError> {
+        let _store = self
+            .store
+            .try_lock()
+            .expect("pipeline must run without an outer user-store lock");
+        Ok(PipelineUpdate {
+            composition: composition.to_owned(),
+            candidates: Vec::new(),
+            intent: PipelineIntent::None,
+        })
+    }
 }
