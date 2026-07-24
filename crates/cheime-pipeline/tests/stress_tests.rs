@@ -2,7 +2,7 @@
 //!
 //! Verifies correctness and catches regressions at scale.
 
-use cheime_config::schema::{FuzzyPinyinConfig, SchemaConfig};
+use cheime_config::schema::SchemaConfig;
 use cheime_dictionary::{parse_body, CompiledIndex, DictColumn};
 use cheime_model::{DeploymentGeneration, Key, KeyEvent, KeyState};
 use cheime_pipeline::factory::PipelineFactory;
@@ -311,6 +311,7 @@ fn fuzzy_pinyin_matches_with_normalizer() {
     }
     assert!(found, "should produce candidates for zhong with fuzzy normalizer in pipeline");
 }
+#[test]
 fn punctuator_half_shape_does_not_convert() {
     let mut full = BTreeMap::new();
     full.insert(".".into(), serde_json::json!({"commit": "。"}));
