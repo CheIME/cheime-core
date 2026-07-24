@@ -32,11 +32,19 @@ fn real_dict() -> &'static Arc<CompiledIndex> {
 }
 
 fn dict_body(raw: &str) -> &str {
-    if let Some(p) = raw.find("\n...\n") {
-        &raw[p + 5..]
-    } else {
-        raw
-    }
+    raw.find("\n...\r\n")
+        .map(|start| &raw[start + 6..])
+        .or_else(|| raw.find("\n...\n").map(|start| &raw[start + 5..]))
+        .unwrap_or(raw)
+}
+
+#[test]
+fn dict_body_skips_crlf_header() {
+    let lf = "---\nname: base\n...\n你好\tni hao\t1\n";
+    let crlf = "---\r\nname: base\r\n...\r\n你好\tni hao\t1\r\n";
+
+    assert_eq!(dict_body(lf), "你好\tni hao\t1\n");
+    assert_eq!(dict_body(crlf), "你好\tni hao\t1\r\n");
 }
 
 fn real_pipeline() -> impl InputPipeline {
