@@ -9,7 +9,6 @@ use crossterm::{
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use std::io::{self, Write};
-use std::time::Duration;
 
 /// Manages terminal state for the duration of the interactive session.
 ///
@@ -59,25 +58,6 @@ impl Terminal {
                 _ => {
                     // Mouse, focus, paste — ignored.
                 }
-            }
-        }
-    }
-
-    /// Non-blocking poll for a key event.
-    ///
-    /// Returns `Ok(None)` when no key is available within `timeout`.
-    /// Like `read_key`, non-key events are filtered out.
-    #[allow(dead_code)]
-    pub(super) fn try_read_key(&self, timeout: Duration) -> io::Result<Option<KeyEvent>> {
-        if !event::poll(timeout)? {
-            return Ok(None);
-        }
-        match event::read()? {
-            Event::Key(key) => Ok(Some(key)),
-            _ => {
-                // We polled, got a non-key event — consume it and return
-                // None so the caller can try again next frame.
-                Ok(None)
             }
         }
     }

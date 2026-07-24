@@ -3,11 +3,9 @@ use cheime_model::{
     Sequence, SessionEpoch, SessionId,
 };
 use cheime_pipeline::InputPipeline;
-use cheime_protocol::FrontendMessage;
-use cheime_protocol::MessageHeader;
+use cheime_protocol::{FrontendMessage, MessageHeader};
 use cheime_session::Session;
 use cheime_user_data::UserStore;
-use chrono::Utc;
 use parking_lot::Mutex;
 use std::io;
 use std::path::Path;
@@ -15,111 +13,100 @@ use std::sync::Arc;
 
 use super::app::AppState;
 use super::input::{self, AppAction, SessionCommand};
-use super::log::RunId;
+use super::log::RunLog;
 use super::render::frame::build_frame;
 use super::render::writer::render_frame;
-use super::session::{SessionApplicationContext, SessionDispatchError, SessionDriver};
+use super::session::SessionDriver;
 use super::terminal::Terminal;
 
 pub(crate) fn run_interactive<P: InputPipeline>(
     session: Session<P>,
     store: Arc<Mutex<UserStore>>,
-    data_dir: &Path,
+    log_path: &Path,
 ) -> io::Result<()> {
-    let run_id = RunId::new("interactive");
-    let mut driver = SessionDriver::new(session, run_id);
+    let mut log = RunLog::open(log_path)?;
+    log.append("session started")?;
+
+    let mut driver = SessionDriver::new(session);
     let mut state = AppState::new();
     let terminal = Terminal::init()?;
-    let (cols, rows) = Terminal::size()?;
-
-    // Best-effort run log — open errors are logged to stderr, not fatal.
-    let log_path = open_run_log_best_effort(data_dir);
+    let (columns, rows) = Terminal::size()?;
 
     let result = event_loop(
         &mut driver,
         &mut state,
-        Arc::clone(&store),
+        &store,
         &terminal,
-        cols,
-        rows,
-        log_path.as_deref(),
+        (columns, rows),
+        log_path,
+        &mut log,
     );
+    driver.finish_learning(&store);
 
-    // Terminal::Drop restores raw mode / alternate screen / cursor.
-    drop(terminal);
-
+    match &result {
+        Ok(()) => log.append("session stopped")?,
+        Err(error) => {
+            let _ = log.append(&format!("terminal error: {error}"));
+        }
+    }
     result
 }
 
-#[allow(clippy::too_many_arguments)]
 fn event_loop<P: InputPipeline>(
     driver: &mut SessionDriver<P>,
     state: &mut AppState,
-    store: Arc<Mutex<UserStore>>,
+    store: &Arc<Mutex<UserStore>>,
     terminal: &Terminal,
-    mut cols: u16,
-    mut rows: u16,
-    log_path: Option<&Path>,
+    mut size: (u16, u16),
+    log_path: &Path,
+    log: &mut RunLog,
 ) -> io::Result<()> {
-    let mut sequence: u64 = 0;
+    let mut sequence = 1_u64;
 
     loop {
-        // ── read key ────────────────────────────────────────────────────
-        let ct_key = terminal.read_key()?;
-
-        // Track resize events by polling terminal size after every key
-        if let Ok((w, h)) = Terminal::size() {
-            cols = w;
-            rows = h;
+        let event = terminal.read_key()?;
+        if let Ok(current_size) = Terminal::size() {
+            size = current_size;
         }
 
-        let input = match input::from_crossterm_key(ct_key) {
-            Some(ev) => ev,
-            None => continue,
-        };
-
-        // ── route → action ──────────────────────────────────────────────
-        let action = input::route_key(state, input);
-
-        match action {
-            AppAction::Local(local) => {
-                state.apply_local(local);
-            }
-            AppAction::Send(cmd) => {
-                let msg = build_frontend_message(cmd, sequence);
+        match input::route_key(state, event) {
+            AppAction::Local(action) => state.apply_local(action),
+            AppAction::Send(command) => {
+                let message = build_frontend_message(command, sequence);
                 sequence += 1;
+                append_best_effort(log, state, &format!("frontend {message:?}"));
 
-                let timestamp = Utc::now();
-                let mut user_store = store.lock();
-                let ctx = SessionApplicationContext::new(state, &mut user_store);
-
-                match driver.send_and_apply_at(msg, timestamp, ctx) {
-                    Ok(_dispatch) => {
-                        // Engine messages already applied to state by
-                        // send_and_apply_at (snapshot, commits, etc.).
+                match driver.send_and_apply(message, state, store) {
+                    Ok(messages) => {
+                        for message in messages {
+                            append_best_effort(log, state, &format!("engine {message:?}"));
+                        }
                     }
-                    Err(SessionDispatchError::Session { error, .. }) => {
-                        state.set_status(format!("engine error: {error}"));
-                    }
-                    Err(other) => {
-                        state.set_status(format!("session error: {other}"));
+                    Err(error) => {
+                        let status = format!("engine error: {error}");
+                        append_best_effort(log, state, &status);
+                        state.set_status(status);
                     }
                 }
             }
             AppAction::Exit => break,
-            AppAction::Ignore => {}
+            AppAction::Ignore => continue,
         }
 
-        // ── render ──────────────────────────────────────────────────────
-        let frame = build_frame(state, cols, rows, log_path);
-        let mut stdout = io::stdout();
-        render_frame(&mut stdout, &frame)?;
+        let frame = build_frame(state, size.0, size.1, log_path);
+        render_frame(&mut io::stdout(), &frame)?;
     }
 
     Ok(())
 }
 
-fn build_frontend_message(cmd: SessionCommand, sequence: u64) -> FrontendMessage {
+fn append_best_effort(log: &mut RunLog, state: &mut AppState, line: &str) {
+    if let Err(error) = log.append(line) {
+        state.set_status(format!("log error: {error}"));
+    }
+}
+
+fn build_frontend_message(command: SessionCommand, sequence: u64) -> FrontendMessage {
     let header = MessageHeader {
         protocol_version: CORE_PROTOCOL_VERSION,
         client: ClientInstanceId::new(1),
@@ -130,7 +117,7 @@ fn build_frontend_message(cmd: SessionCommand, sequence: u64) -> FrontendMessage
         deployment: DeploymentGeneration::new(1),
     };
 
-    match cmd {
+    match command {
         SessionCommand::Key(key) => FrontendMessage::KeyCommand {
             header,
             event: KeyEvent {
@@ -139,15 +126,5 @@ fn build_frontend_message(cmd: SessionCommand, sequence: u64) -> FrontendMessage
             },
         },
         SessionCommand::Ui(command) => FrontendMessage::UiCommand { header, command },
-        SessionCommand::Close => FrontendMessage::CloseSession { header },
     }
-}
-
-// ── run log ────────────────────────────────────────────────────────────────
-
-fn open_run_log_best_effort(data_dir: &Path) -> Option<std::path::PathBuf> {
-    // Run log lifecycle is wired in a follow-up; for now return None.
-    // The log path passed to build_frame just shows "-" on the status bar.
-    let _ = data_dir;
-    None
 }
