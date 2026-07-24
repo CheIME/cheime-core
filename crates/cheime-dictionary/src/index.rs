@@ -8,6 +8,27 @@ use std::sync::Arc;
 
 use crate::tiered::TieredIndex;
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LexiconEntry {
+    pub text: String,
+    pub code: String,
+    pub weight: i64,
+    pub source: String,
+    pub completion: bool,
+}
+
+impl LexiconEntry {
+    fn into_candidate(self, id: u64) -> Candidate {
+        Candidate {
+            id: CandidateId::new(id),
+            text: self.text,
+            annotation: Some(self.code),
+            source: self.source,
+            is_emoji: false,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // MemoryIndex — the original full-in-memory index
 // ---------------------------------------------------------------------------
@@ -77,60 +98,81 @@ impl MemoryIndex {
     }
 
     /// Exact code lookup (single key).
-    pub fn query(&self, code: &str) -> Vec<Candidate> {
+    pub fn lookup_exact(&self, code: &str) -> Vec<LexiconEntry> {
         let hash8 = self.source_hash.chars().take(8).collect::<String>();
         self.entries
             .get(code)
             .into_iter()
             .flatten()
-            .enumerate()
-            .map(|(idx, (text, _))| Candidate {
-                id: CandidateId::new(idx as u64 + 1),
+            .map(|(text, weight)| LexiconEntry {
                 text: text.clone(),
-                annotation: Some(code.to_owned()),
+                code: code.to_owned(),
+                weight: weight.unwrap_or(1),
                 source: format!("dict:{hash8}"),
-                is_emoji: false,
+                completion: false,
             })
             .collect()
     }
 
     /// Prefix search: all entries whose code starts with `prefix`.
     /// Returns up to `limit` candidates, sorted by weight descending.
-    pub fn query_prefix(&self, prefix: &str, limit: usize) -> Vec<Candidate> {
+    pub fn lookup_prefix(&self, prefix: &str, limit: usize) -> Vec<LexiconEntry> {
+        use std::cmp::Reverse;
         use std::collections::BinaryHeap;
+
+        if limit == 0 {
+            return Vec::new();
+        }
         let end = format!("{prefix}\u{10FFFF}");
         let range = self.entries.range(prefix.to_string()..=end);
-
-        let mut heap: BinaryHeap<(i64, String, String)> = BinaryHeap::new();
+        let mut heap = BinaryHeap::new();
 
         for (code, entries) in range {
             for (text, weight) in entries {
-                let w = weight.unwrap_or(1);
-                heap.push((w, text.clone(), code.clone()));
-                if heap.len() > limit * 2 {
-                    let mut drained: Vec<_> = heap.drain().collect();
-                    drained.sort_by_key(|(w, _, _)| std::cmp::Reverse(*w));
-                    drained.truncate(limit);
-                    heap = drained.into_iter().collect();
+                heap.push((Reverse(weight.unwrap_or(1)), text.clone(), code.clone()));
+                if heap.len() > limit {
+                    heap.pop();
                 }
             }
         }
 
-        let mut results: Vec<_> = heap.into_iter().collect();
-        results.sort_by_key(|(w, _, _)| std::cmp::Reverse(*w));
-        results.truncate(limit);
-
-        let hash8 = self.source_hash.chars().take(8).collect::<String>();
+        let source = format!(
+            "dict:{}",
+            self.source_hash.chars().take(8).collect::<String>()
+        );
+        let mut results: Vec<_> = heap
+            .into_iter()
+            .map(|(Reverse(weight), text, code)| LexiconEntry {
+                completion: code != prefix,
+                text,
+                code,
+                weight,
+                source: source.clone(),
+            })
+            .collect();
+        results.sort_by(|left, right| {
+            right.weight.cmp(&left.weight).then_with(|| {
+                left.text
+                    .cmp(&right.text)
+                    .then_with(|| left.code.cmp(&right.code))
+            })
+        });
         results
+    }
+
+    pub fn query(&self, code: &str) -> Vec<Candidate> {
+        self.lookup_exact(code)
             .into_iter()
             .enumerate()
-            .map(|(idx, (_w, text, code))| Candidate {
-                id: CandidateId::new(idx as u64 + 1),
-                text,
-                annotation: (!code.is_empty()).then_some(code),
-                source: format!("dict:{hash8}"),
-                is_emoji: false,
-            })
+            .map(|(index, entry)| entry.into_candidate(index as u64 + 1))
+            .collect()
+    }
+
+    pub fn query_prefix(&self, prefix: &str, limit: usize) -> Vec<Candidate> {
+        self.lookup_prefix(prefix, limit)
+            .into_iter()
+            .enumerate()
+            .map(|(index, entry)| entry.into_candidate(index as u64 + 1))
             .collect()
     }
 }
@@ -218,6 +260,20 @@ impl CompiledIndex {
             CompiledIndex::Tiered(t) => t.query_prefix(prefix, limit),
         }
     }
+
+    pub fn lookup_exact(&self, code: &str) -> Vec<LexiconEntry> {
+        match self {
+            CompiledIndex::Memory(m) => m.lookup_exact(code),
+            CompiledIndex::Tiered(t) => t.lookup_exact(code),
+        }
+    }
+
+    pub fn lookup_prefix(&self, prefix: &str, limit: usize) -> Vec<LexiconEntry> {
+        match self {
+            CompiledIndex::Memory(m) => m.lookup_prefix(prefix, limit),
+            CompiledIndex::Tiered(t) => t.lookup_prefix(prefix, limit),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -245,6 +301,22 @@ mod tests {
             weight: Some(weight),
             stem: None,
         }
+    }
+
+    #[test]
+    fn weighted_lookup_preserves_code_weight_and_completion() {
+        let idx = MemoryIndex::build(
+            vec![entry("你好", "ni hao", 200)],
+            DeploymentGeneration::new(1),
+        );
+        let exact = idx.lookup_exact("ni hao");
+        assert_eq!(exact[0].code, "ni hao");
+        assert_eq!(exact[0].weight, 200);
+        assert!(!exact[0].completion);
+
+        let prefix = idx.lookup_prefix("ni h", 10);
+        assert_eq!(prefix[0].code, "ni hao");
+        assert!(prefix[0].completion);
     }
 
     #[test]

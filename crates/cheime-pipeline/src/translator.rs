@@ -4,8 +4,10 @@
 //! cannot split the composition (e.g. non-pinyin input).
 
 use crate::{CodeSegment, Translator};
+use crate::decoder::{Decoder, Lexicon};
+use crate::segmentation::SegmentationGraph;
 use cheime_dictionary::CompiledIndex;
-use cheime_model::{Candidate, CandidateId};
+use cheime_model::Candidate;
 use std::sync::Arc;
 
 /// Translates segments by querying a compiled dictionary index.
@@ -44,60 +46,18 @@ impl Translator for DictTranslator {
                 if !results.is_empty() {
                     return results;
                 }
-                // Fallback: query each segment independently, then concatenate top results
-                let mut per_seg: Vec<Vec<Candidate>> = Vec::with_capacity(segments.len());
-                for seg in segments {
-                    let seg_code = &seg.code;
-                    let seg_results = if seg_code.len() == 1 {
-                        self.index.query_prefix(seg_code, 5)
-                    } else {
-                        self.index.query(seg_code)
-                    };
-                    per_seg.push(seg_results);
-                }
-                // Produce concatenated candidates: take top-N from each segment
-                // and generate cross-product combinations (up to limit)
-                let limit = 10;
-                let mut combined = Vec::new();
-                // Simple approach: take top-1 from each segment and concatenate
-                let concat_text: String = per_seg
-                    .iter()
-                    .zip(segments.iter())
-                    .map(|(results, seg)| {
-                        if results.is_empty() {
-                            seg.code.as_str() // raw code as fallback
-                        } else {
-                            results[0].text.as_str()
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join("");
-                if !concat_text.is_empty() {
-                    combined.push(Candidate {
-                        id: CandidateId::new(1),
-                        text: concat_text,
-                        annotation: None,
-                        source: "dict:concat".to_string(),
-                        is_emoji: false,
-                    });
-                }
-                // Also include individual segment results as alternatives
-                for seg_results in &per_seg {
-                    for c in seg_results {
-                        if combined.len() >= limit {
-                            break;
-                        }
-                        if !combined.iter().any(|existing| existing.text == c.text) {
-                            combined.push(c.clone());
-                        }
-                    }
-                    if combined.len() >= limit {
-                        break;
-                    }
-                }
-                combined
+                vec![]
             }
         }
+    }
+
+    fn translate_graph(&self, graph: &SegmentationGraph) -> Vec<Candidate> {
+        let lexicon: Arc<dyn Lexicon> = self.index.clone();
+        Decoder::new(vec![lexicon])
+            .decode("", graph)
+            .into_iter()
+            .map(|candidate| candidate.display)
+            .collect()
     }
 }
 
@@ -176,6 +136,8 @@ impl Translator for UserDictTranslator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::segmentor::PinyinSegmentor;
+    use crate::Segmentor;
     use cheime_dictionary::{CompiledIndex, DictEntry};
     use cheime_model::DeploymentGeneration;
     use std::sync::Arc;
@@ -208,6 +170,37 @@ mod tests {
         let candidates = translator.translate(&[segment]);
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].text, "你");
+    }
+
+    #[test]
+    fn dict_translator_completes_incomplete_nih() {
+        let index = Arc::new(CompiledIndex::build(
+            vec![
+                DictEntry {
+                    text: "你好".into(),
+                    code: "ni hao".into(),
+                    weight: Some(200),
+                    stem: None,
+                },
+                DictEntry {
+                    text: "你".into(),
+                    code: "ni".into(),
+                    weight: Some(100),
+                    stem: None,
+                },
+                DictEntry {
+                    text: "好".into(),
+                    code: "hao".into(),
+                    weight: Some(100),
+                    stem: None,
+                },
+            ],
+            DeploymentGeneration::new(1),
+        ));
+        let translator = DictTranslator::new("test", index);
+        let graph = PinyinSegmentor::new().segment("nih");
+        let candidates = translator.translate_graph(&graph);
+        assert!(candidates.iter().any(|candidate| candidate.text == "你好"));
     }
 
     #[test]

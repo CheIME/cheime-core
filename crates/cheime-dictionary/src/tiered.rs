@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use cheime_model::{Candidate, CandidateId, DeploymentGeneration};
 use cheime_tidx::TidexReader;
+use crate::index::LexiconEntry;
 
 // ---------------------------------------------------------------------------
 // HotEntry
@@ -84,7 +85,7 @@ impl TieredIndex {
     }
 
     /// Exact code lookup — merge hot + cold entries.
-    pub fn query(&self, code: &str) -> Vec<Candidate> {
+    pub fn lookup_exact(&self, code: &str) -> Vec<LexiconEntry> {
         let mut seen = std::collections::HashSet::new();
         let mut all = Vec::new();
 
@@ -104,59 +105,96 @@ impl TieredIndex {
             }
         }
 
-        all.sort_by_key(|(w, _)| std::cmp::Reverse(*w));
+        all.sort_by(|left, right| {
+            right
+                .0
+                .cmp(&left.0)
+                .then_with(|| left.1.cmp(&right.1))
+        });
         let hash8 = self.source_hash.chars().take(8).collect::<String>();
         all.into_iter()
-            .enumerate()
-            .map(|(idx, (_w, text))| Candidate {
-                id: CandidateId::new(idx as u64 + 1),
+            .map(|(weight, text)| LexiconEntry {
                 text,
-                annotation: Some(code.to_owned()),
+                code: code.to_owned(),
+                weight: i64::from(weight),
                 source: format!("dict:{hash8}"),
-                is_emoji: false,
+                completion: false,
             })
             .collect()
     }
 
     /// Prefix search: top `limit` entries across all codes matching `prefix`.
-    pub fn query_prefix(&self, prefix: &str, limit: usize) -> Vec<Candidate> {
+    pub fn lookup_prefix(&self, prefix: &str, limit: usize) -> Vec<LexiconEntry> {
         let start = self.hot.partition_point(|(c, _)| c.as_str() < prefix);
 
         let mut all = Vec::new();
         let mut seen = std::collections::HashSet::new();
+        let hash8 = self.source_hash.chars().take(8).collect::<String>();
 
-        // Hot entries within prefix range
+        // `hot` retains every code, so it can also provide the code metadata
+        // for cold entries without changing the on-disk format.
         for (code, entries) in &self.hot[start..] {
             if !code.starts_with(prefix) {
                 break;
             }
             for e in entries {
-                if seen.insert(e.text.clone()) {
-                    all.push((e.weight, e.text.clone()));
+                if seen.insert((code.clone(), e.text.clone())) {
+                    all.push(LexiconEntry {
+                        text: e.text.clone(),
+                        code: code.clone(),
+                        weight: i64::from(e.weight),
+                        source: format!("dict:{hash8}"),
+                        completion: code != prefix,
+                    });
+                }
+            }
+            for (text, weight) in self.cold.query(code) {
+                if seen.insert((code.clone(), text.clone())) {
+                    all.push(LexiconEntry {
+                        text,
+                        code: code.clone(),
+                        weight: i64::from(weight),
+                        source: format!("dict:{hash8}"),
+                        completion: code != prefix,
+                    });
                 }
             }
         }
 
-        // Cold entries — over-fetch to compensate for hot/cold dedup
-        let cold_limit = limit.saturating_sub(all.len()).saturating_mul(2);
-        let cold = self.cold.query_prefix(prefix, cold_limit);
-        for (text, weight) in cold {
-            if seen.insert(text.clone()) {
-                all.push((weight, text));
-            }
-        }
-
-        all.sort_by_key(|(w, _)| std::cmp::Reverse(*w));
+        all.sort_by(|left, right| {
+            right
+                .weight
+                .cmp(&left.weight)
+                .then_with(|| left.text.cmp(&right.text))
+                .then_with(|| left.code.cmp(&right.code))
+        });
         all.truncate(limit);
+        all
+    }
 
-        let hash8 = self.source_hash.chars().take(8).collect::<String>();
-        all.into_iter()
+    pub fn query(&self, code: &str) -> Vec<Candidate> {
+        self.lookup_exact(code)
+            .into_iter()
             .enumerate()
-            .map(|(idx, (_w, text))| Candidate {
+            .map(|(idx, entry)| Candidate {
                 id: CandidateId::new(idx as u64 + 1),
-                text,
-                annotation: None,
-                source: format!("dict:{hash8}"),
+                text: entry.text,
+                annotation: Some(entry.code),
+                source: entry.source,
+                is_emoji: false,
+            })
+            .collect()
+    }
+
+    pub fn query_prefix(&self, prefix: &str, limit: usize) -> Vec<Candidate> {
+        self.lookup_prefix(prefix, limit)
+            .into_iter()
+            .enumerate()
+            .map(|(idx, entry)| Candidate {
+                id: CandidateId::new(idx as u64 + 1),
+                text: entry.text,
+                annotation: Some(entry.code),
+                source: entry.source,
                 is_emoji: false,
             })
             .collect()

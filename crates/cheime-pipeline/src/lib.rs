@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 mod builtin;
+pub mod decoder;
 pub mod emoji;
 pub mod factory;
 pub mod filter;
@@ -95,6 +96,10 @@ pub trait Translator: Send + Sync {
     /// Translators receive all segments at once, allowing multi-syllable
     /// dictionary lookups (e.g., segments ["ni", "hao"] → query "ni hao").
     fn translate(&self, segments: &[CodeSegment]) -> Vec<Candidate>;
+
+    fn translate_graph(&self, graph: &SegmentationGraph) -> Vec<Candidate> {
+        self.translate(&graph.primary_path())
+    }
 }
 
 // ── Filter ──────────────────────────────────────────────────────────
@@ -171,9 +176,10 @@ impl ComposablePipeline {
         } else {
             graph
         };
-        let variants = normalized.primary_path();
         let mut candidates = proc_out.inject_candidates;
-        for t in &self.translators { candidates.extend(t.translate(&variants)); }
+        for t in &self.translators {
+            candidates.extend(t.translate_graph(&normalized));
+        }
         for f in &self.filters { candidates = f.filter(candidates); }
         candidates = self.ranker.rank(candidates);
         Ok(PipelineUpdate { composition: proc_out.composition, candidates, intent: proc_out.intent })

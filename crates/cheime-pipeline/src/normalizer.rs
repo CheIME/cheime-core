@@ -61,8 +61,11 @@ impl FuzzyNormalizer {
         Self {
             rules: vec![
                 FuzzyRule { from: "zh", to: "z" },
+                FuzzyRule { from: "z", to: "zh" },
                 FuzzyRule { from: "ch", to: "c" },
+                FuzzyRule { from: "c", to: "ch" },
                 FuzzyRule { from: "sh", to: "s" },
+                FuzzyRule { from: "s", to: "sh" },
                 FuzzyRule { from: "n", to: "l" },
                 FuzzyRule { from: "l", to: "n" },
                 FuzzyRule { from: "f", to: "h" },
@@ -108,6 +111,12 @@ impl CodeNormalizer for FuzzyNormalizer {
         variants.push(segment.clone());
 
         for rule in &self.rules {
+            if rule.from.len() == 1
+                && rule.to.starts_with(rule.from)
+                && segment.code.starts_with(rule.to)
+            {
+                continue;
+            }
             if let Some(variant_code) = Self::apply_rule(&segment.code, rule.from, rule.to) {
                 variants.push(CodeSegment {
                     code: variant_code,
@@ -190,6 +199,29 @@ impl CodeNormalizer for AbbreviationNormalizer {
             }
         }
         variants
+    }
+
+    fn normalize_graph(&self, graph: &SegmentationGraph) -> SegmentationGraph {
+        let mut normalized = graph.clone();
+        for edge in graph.edges() {
+            if edge.raw.len() != 1 || !edge.raw.as_bytes()[0].is_ascii_lowercase() {
+                continue;
+            }
+            let initial = edge.raw.as_bytes()[0] as char;
+            let Some(expansions) = self.by_initial.get(&initial) else {
+                continue;
+            };
+            for canonical in expansions {
+                normalized.add_edge(SyllableEdge {
+                    span: edge.span,
+                    raw: edge.raw.clone(),
+                    canonical: canonical.clone(),
+                    kind: crate::segmentation::SyllableKind::Complete,
+                });
+            }
+        }
+        normalized.finish();
+        normalized
     }
 }
 
