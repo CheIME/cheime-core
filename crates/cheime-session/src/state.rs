@@ -1,9 +1,9 @@
 use crate::SessionError;
 use cheime_model::{
-    ActionId, CandidateId, CandidateSnapshot, PlatformAction, PlatformActionKind,
+    ActionId, CandidateId, CandidateSnapshot, CommitToken, PlatformAction, PlatformActionKind,
     PlatformActionOutcome, Revision, SessionStatus, UiCommand,
 };
-use cheime_pipeline::{InputPipeline, PipelineIntent};
+use cheime_pipeline::{CommitRecord, InputPipeline, PipelineIntent};
 use cheime_pipeline::decoder::{ResolvedCandidate, SelectedLexeme};
 use cheime_pipeline::segmentation::InputSpan;
 use cheime_protocol::{EngineMessage, FrontendMessage, MessageHeader};
@@ -14,7 +14,7 @@ const DEFAULT_PAGE_SIZE: usize = 9;
 
 #[derive(Clone, Debug)]
 enum PendingEffect {
-    ClearComposition,
+    ClearComposition { commit: Option<CommitRecord> },
     KeepComposition,
 }
 
@@ -313,7 +313,7 @@ impl<P: InputPipeline> Session<P> {
         }
         let action = self.new_action(
             PlatformActionKind::Commit { text },
-            PendingEffect::ClearComposition,
+            PendingEffect::ClearComposition { commit: None },
         );
         Ok(vec![
             self.action_message(action),
@@ -324,7 +324,7 @@ impl<P: InputPipeline> Session<P> {
     fn propose_cancel(&mut self) -> Result<Vec<EngineMessage>, SessionError> {
         let action = self.new_action(
             PlatformActionKind::CancelComposition,
-            PendingEffect::ClearComposition,
+            PendingEffect::ClearComposition { commit: None },
         );
         Ok(vec![self.action_message(action)])
     }
@@ -334,7 +334,7 @@ impl<P: InputPipeline> Session<P> {
             PlatformActionKind::Commit {
                 text,
             },
-            PendingEffect::ClearComposition,
+            PendingEffect::ClearComposition { commit: None },
         );
         Ok(vec![
             self.action_message(action),
@@ -349,7 +349,7 @@ impl<P: InputPipeline> Session<P> {
         }
         let action = self.new_action(
             PlatformActionKind::Commit { text },
-            PendingEffect::ClearComposition,
+            PendingEffect::ClearComposition { commit: None },
         );
         Ok(vec![
             self.action_message(action),
@@ -363,9 +363,12 @@ impl<P: InputPipeline> Session<P> {
     ) -> Result<Vec<EngineMessage>, SessionError> {
         if candidate.complete {
             let text = format!("{}{}", self.composition.confirmed_text(), candidate.text);
+            let record = self.commit_record(&candidate);
             let action = self.new_action(
                 PlatformActionKind::Commit { text },
-                PendingEffect::ClearComposition,
+                PendingEffect::ClearComposition {
+                    commit: Some(record),
+                },
             );
             return Ok(vec![
                 self.action_message(action),
@@ -426,6 +429,30 @@ impl<P: InputPipeline> Session<P> {
         ])
     }
 
+    fn commit_record(&self, candidate: &ResolvedCandidate) -> CommitRecord {
+        let mut canonical_codes: Vec<&str> = self
+            .composition
+            .confirmed
+            .iter()
+            .map(|segment| segment.canonical_code.as_str())
+            .collect();
+        canonical_codes.push(candidate.canonical_code.as_str());
+        let mut lexemes = self
+            .composition
+            .confirmed
+            .iter()
+            .flat_map(|segment| segment.lexemes.clone())
+            .collect::<Vec<_>>();
+        lexemes.extend(candidate.lexemes.clone());
+        CommitRecord {
+            text: format!("{}{}", self.composition.confirmed_text(), candidate.text),
+            canonical_code: canonical_codes.join(" "),
+            schema: self.pipeline.schema_id().to_owned(),
+            lexemes,
+            exact_phrase: self.composition.confirmed.is_empty() && candidate.exact_phrase,
+        }
+    }
+
     fn handle_action_result(
         &mut self,
         result: cheime_model::PlatformActionResult,
@@ -434,9 +461,20 @@ impl<P: InputPipeline> Session<P> {
             .pending
             .remove(&result.action_id)
             .ok_or(SessionError::UnknownAction(result.action_id))?;
-        if matches!(result.outcome, PlatformActionOutcome::Applied)
-            && matches!(effect, PendingEffect::ClearComposition)
-        {
+        if matches!(result.outcome, PlatformActionOutcome::Applied) {
+            let PendingEffect::ClearComposition { commit } = effect else {
+                return Ok(Vec::new());
+            };
+            if let Some(record) = commit {
+                self.pipeline.commit_applied(
+                    CommitToken {
+                        session: self.identity.session,
+                        epoch: self.identity.epoch,
+                        action_id: result.action_id,
+                    },
+                    record,
+                );
+            }
             self.composition.clear();
             self.candidates.clear();
             self.highlighted_idx = 0;
@@ -510,7 +548,10 @@ mod tests {
     use cheime_pipeline::BuiltinPipeline;
     use cheime_pipeline::decoder::{ResolvedCandidate, SelectedLexeme};
     use cheime_pipeline::segmentation::InputSpan;
-    use cheime_pipeline::{InputPipeline, PipelineError, PipelineIntent, PipelineUpdate};
+    use cheime_pipeline::{
+        CommitRecord, InputPipeline, PipelineError, PipelineIntent, PipelineUpdate,
+    };
+    use std::sync::{Arc, Mutex};
 
     #[derive(Clone, Debug, Default)]
     struct PartialPipeline;
@@ -574,6 +615,33 @@ mod tests {
 
         fn refresh(&self, composition: &str) -> Result<Vec<ResolvedCandidate>, PipelineError> {
             Ok(Self::candidates(composition))
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct RecordingLearningPipeline {
+        staged: Arc<Mutex<Vec<(cheime_model::CommitToken, CommitRecord)>>>,
+    }
+
+    impl InputPipeline for RecordingLearningPipeline {
+        fn apply(
+            &self,
+            composition: &str,
+            event: &KeyEvent,
+        ) -> Result<PipelineUpdate, PipelineError> {
+            PartialPipeline.apply(composition, event)
+        }
+
+        fn refresh(&self, composition: &str) -> Result<Vec<ResolvedCandidate>, PipelineError> {
+            PartialPipeline.refresh(composition)
+        }
+
+        fn commit_applied(
+            &self,
+            token: cheime_model::CommitToken,
+            record: CommitRecord,
+        ) {
+            self.staged.lock().unwrap().push((token, record));
         }
     }
 
@@ -678,6 +746,110 @@ mod tests {
                 ..
             } if text == "旎皓"
         ));
+    }
+
+    #[test]
+    fn applied_novel_phrase_stages_learning() {
+        let pipeline = RecordingLearningPipeline::default();
+        let staged = Arc::clone(&pipeline.staged);
+        let mut session = Session::new(initial_header(), pipeline);
+        let (sequence, revision) = type_text(&mut session, "nihao", 1, 0);
+        session
+            .handle(ui_message(
+                sequence,
+                revision,
+                UiCommand::SelectCandidate {
+                    epoch: SessionEpoch::new(3),
+                    snapshot_revision: Revision::new(revision),
+                    candidate_id: CandidateId::new(1),
+                },
+            ))
+            .unwrap();
+        let output = session
+            .handle(ui_message(
+                sequence + 1,
+                revision + 1,
+                UiCommand::SelectCandidate {
+                    epoch: SessionEpoch::new(3),
+                    snapshot_revision: Revision::new(revision + 1),
+                    candidate_id: CandidateId::new(1),
+                },
+            ))
+            .unwrap();
+        let action_id = match &output[0] {
+            EngineMessage::PlatformAction { action, .. } => action.id,
+            other => panic!("expected commit action, got {other:?}"),
+        };
+        session
+            .handle(FrontendMessage::PlatformActionResult {
+                header: {
+                    let mut header = initial_header();
+                    header.sequence = Sequence::new(sequence + 2);
+                    header.revision = Revision::new(revision + 1);
+                    header
+                },
+                result: PlatformActionResult {
+                    action_id,
+                    outcome: PlatformActionOutcome::Applied,
+                },
+            })
+            .unwrap();
+        let staged = staged.lock().unwrap();
+        assert_eq!(staged.len(), 1);
+        assert_eq!(staged[0].1.text, "旎皓");
+        assert_eq!(staged[0].1.canonical_code, "ni hao");
+        assert!(!staged[0].1.exact_phrase);
+    }
+
+    #[test]
+    fn rejected_novel_phrase_does_not_stage_learning() {
+        let pipeline = RecordingLearningPipeline::default();
+        let staged = Arc::clone(&pipeline.staged);
+        let mut session = Session::new(initial_header(), pipeline);
+        let (sequence, revision) = type_text(&mut session, "nihao", 1, 0);
+        session
+            .handle(ui_message(
+                sequence,
+                revision,
+                UiCommand::SelectCandidate {
+                    epoch: SessionEpoch::new(3),
+                    snapshot_revision: Revision::new(revision),
+                    candidate_id: CandidateId::new(1),
+                },
+            ))
+            .unwrap();
+        let output = session
+            .handle(ui_message(
+                sequence + 1,
+                revision + 1,
+                UiCommand::SelectCandidate {
+                    epoch: SessionEpoch::new(3),
+                    snapshot_revision: Revision::new(revision + 1),
+                    candidate_id: CandidateId::new(1),
+                },
+            ))
+            .unwrap();
+        let action_id = match &output[0] {
+            EngineMessage::PlatformAction { action, .. } => action.id,
+            other => panic!("expected commit action, got {other:?}"),
+        };
+        session
+            .handle(FrontendMessage::PlatformActionResult {
+                header: {
+                    let mut header = initial_header();
+                    header.sequence = Sequence::new(sequence + 2);
+                    header.revision = Revision::new(revision + 1);
+                    header
+                },
+                result: PlatformActionResult {
+                    action_id,
+                    outcome: PlatformActionOutcome::Rejected {
+                        reason: String::from("test"),
+                    },
+                },
+            })
+            .unwrap();
+        assert!(staged.lock().unwrap().is_empty());
     }
 
     #[test]

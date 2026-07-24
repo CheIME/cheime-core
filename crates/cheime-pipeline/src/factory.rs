@@ -4,6 +4,7 @@ use crate::simplifier::{Conversion, SimplifierFilter};
 use cheime_config::schema::{EngineConfig, FilterConfig, SchemaConfig, SegmentorConfig};
 use cheime_dictionary::CompiledIndex;
 use cheime_user_data::UserStore;
+use crate::learning::LearningService;
 use parking_lot::Mutex;
 use std::sync::Arc;
 
@@ -33,11 +34,34 @@ pub struct PipelineFactory;
 
 impl PipelineFactory {
     pub fn build(config: &SchemaConfig, user_store: Option<Arc<Mutex<UserStore>>>, dict_index: Option<Arc<CompiledIndex>>, key_mapper: Option<Box<dyn crate::key_mapper::KeyMapper>>) -> Result<ComposablePipeline, BuildError> {
+        let learning = user_store
+            .map(LearningService::production)
+            .map(Arc::new);
+        Self::build_with_learning(config, learning, dict_index, key_mapper)
+    }
+
+    pub fn build_with_learning(
+        config: &SchemaConfig,
+        learning: Option<Arc<LearningService>>,
+        dict_index: Option<Arc<CompiledIndex>>,
+        key_mapper: Option<Box<dyn crate::key_mapper::KeyMapper>>,
+    ) -> Result<ComposablePipeline, BuildError> {
+        let user_store = learning.as_ref().map(|service| service.store());
         let mut p = ComposablePipeline::new(
             Self::build_processor(config)?, Self::build_segmentor(&config.engine)?,
             Self::build_normalizer(&config.engine),
             Self::build_translators(&config.engine, user_store, dict_index)?,
-            Self::build_filters(&config.engine)?, Self::build_ranker());
+            Self::build_filters(&config.engine)?, Self::build_ranker())
+            .with_schema_id(
+                config
+                    .schema
+                    .as_ref()
+                    .and_then(|schema| schema.schema_id.clone())
+                    .unwrap_or_else(|| String::from("default")),
+            );
+        if let Some(learning) = learning {
+            p = p.with_learning(learning);
+        }
         if let Some(km) = key_mapper { p = p.with_key_mapper(km); }
         Ok(p)
     }
@@ -85,6 +109,10 @@ impl PipelineFactory {
         use cheime_config::schema::TranslatorConfig;
         let mut out: Vec<Box<dyn Translator>> = Vec::new();
 
+        if let Some(store) = user_store.as_ref() {
+            out.push(Box::new(UserDictTranslator::new(Arc::clone(store))));
+        }
+
         for tc in &e.translators {
             match tc {
                 TranslatorConfig::Dict(_) | TranslatorConfig::Table(_) => {
@@ -103,13 +131,13 @@ impl PipelineFactory {
             }
         }
 
-        // Fallback: if no translators configured, use defaults
-        if out.is_empty() {
-            if let Some(s) = user_store { out.push(Box::new(UserDictTranslator::new(s))); }
+        // Fallback: if no translators are configured, add the default static
+        // dictionary and emoji sources in addition to the user lexicon.
+        if e.translators.is_empty() {
             if let Some(idx) = dict_index { out.push(Box::new(DictTranslator::new("main", idx))); }
             out.push(Box::new(crate::emoji::EmojiTranslator::from_file(std::path::Path::new("data/emoji.txt"))));
-            if out.is_empty() { out.push(Box::new(PassthroughTranslator)); }
         }
+        if out.is_empty() { out.push(Box::new(PassthroughTranslator)); }
         Ok(out)
     }
     fn build_filters(e: &EngineConfig) -> Result<Vec<Box<dyn Filter>>, BuildError> {
@@ -205,6 +233,43 @@ mod tests {
         let p = PipelineFactory::build(&conf("schema_version: 1\nengine: {}\n"), Some(Arc::new(Mutex::new(s))), None, None).unwrap();
         let r = p.apply("n", &KeyEvent { key: Key::Character('i'), state: Default::default() }).unwrap();
         assert!(!r.candidates.is_empty()); assert_eq!(r.candidates[0].text, "你");
+    }
+
+    #[test]
+    fn configured_dictionary_does_not_suppress_user_words() {
+        let mut store = UserStore::new("test");
+        store.apply(cheime_user_data::UserEvent::learn_word(
+            "test", "qp", "旎", "ni",
+        ));
+        let index = Arc::new(CompiledIndex::build(
+            vec![cheime_dictionary::DictEntry {
+                text: String::from("你"),
+                code: String::from("ni"),
+                weight: Some(100),
+                stem: None,
+            }],
+            cheime_model::DeploymentGeneration::new(1),
+        ));
+        let pipeline = PipelineFactory::build(
+            &conf(
+                "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  translators:\n    - type: dict\n      dictionary: main\n",
+            ),
+            Some(Arc::new(Mutex::new(store))),
+            Some(index),
+            None,
+        )
+        .unwrap();
+        let update = pipeline
+            .apply(
+                "n",
+                &KeyEvent {
+                    key: Key::Character('i'),
+                    state: Default::default(),
+                },
+            )
+            .unwrap();
+        assert_eq!(update.candidates[0].text, "旎");
+        assert_eq!(update.candidates[0].source, "user_dict");
     }
 
     #[test]

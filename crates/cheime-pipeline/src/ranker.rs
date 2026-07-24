@@ -34,7 +34,7 @@ impl UnifiedRanker {
 
     fn score(&self, c: &ResolvedCandidate) -> f64 {
         let mut s = c.score as f64;
-        s += source_priority(&c.source) * self.weights.source;
+        s += source_priority(&c.source) * self.weights.source * 10_000_000.0;
         s += self.weights.code_length * (1.0 / (c.text.chars().count() as f64).max(1.0));
         if c.is_emoji {
             s += 0.05;

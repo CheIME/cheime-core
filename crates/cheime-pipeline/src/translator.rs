@@ -6,7 +6,7 @@
 use crate::{CodeSegment, Translator};
 use crate::decoder::{Decoder, Lexicon, ResolvedCandidate};
 use crate::segmentation::SegmentationGraph;
-use cheime_dictionary::CompiledIndex;
+use cheime_dictionary::{CompiledIndex, LexiconEntry};
 use cheime_model::Candidate;
 use std::sync::Arc;
 
@@ -97,6 +97,42 @@ pub struct UserDictTranslator {
     store: Arc<PLMutex<UserStore>>,
 }
 
+#[derive(Debug)]
+struct UserLexicon {
+    store: Arc<PLMutex<UserStore>>,
+}
+
+impl Lexicon for UserLexicon {
+    fn exact(&self, code: &str) -> Vec<LexiconEntry> {
+        self.entries(self.store.lock().query(code), false)
+    }
+
+    fn prefix(&self, code: &str, limit: usize) -> Vec<LexiconEntry> {
+        let mut entries = self.entries(self.store.lock().query_prefix(code), true);
+        entries.truncate(limit);
+        entries
+    }
+}
+
+impl UserLexicon {
+    fn entries(
+        &self,
+        candidates: Vec<cheime_user_data::UserCandidate>,
+        completion: bool,
+    ) -> Vec<LexiconEntry> {
+        candidates
+            .into_iter()
+            .map(|candidate| LexiconEntry {
+                text: candidate.text,
+                code: candidate.code,
+                weight: candidate.frequency,
+                source: String::from("user_dict"),
+                completion,
+            })
+            .collect()
+    }
+}
+
 impl UserDictTranslator {
     pub fn new(store: Arc<PLMutex<UserStore>>) -> Self {
         Self { store }
@@ -126,6 +162,37 @@ impl Translator for UserDictTranslator {
                 is_emoji: false,
             })
             .collect()
+    }
+
+    fn translate_graph(&self, graph: &SegmentationGraph) -> Vec<ResolvedCandidate> {
+        if graph
+            .edges()
+            .all(|edge| edge.kind == crate::segmentation::SyllableKind::Raw)
+        {
+            let path = graph.primary_path();
+            let code = path
+                .iter()
+                .map(|segment| segment.code.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            return self
+                .translate(&path)
+                .into_iter()
+                .map(|candidate| {
+                    ResolvedCandidate::from_display(
+                        candidate,
+                        crate::segmentation::InputSpan::new(0, graph.input_len()),
+                        code.clone(),
+                        true,
+                        0,
+                    )
+                })
+                .collect();
+        }
+        let lexicon: Arc<dyn Lexicon> = Arc::new(UserLexicon {
+            store: Arc::clone(&self.store),
+        });
+        Decoder::new(vec![lexicon]).decode("", graph)
     }
 }
 

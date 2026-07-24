@@ -7,6 +7,7 @@ pub mod emoji;
 pub mod factory;
 pub mod filter;
 pub mod key_mapper;
+pub mod learning;
 pub mod normalizer;
 pub mod processor;
 pub mod punctuator;
@@ -18,7 +19,9 @@ pub mod translator;
 pub use builtin::BuiltinPipeline;
 use cheime_model::{Candidate, Key, KeyEvent};
 use cheime_model::CandidateId;
+use cheime_model::CommitToken;
 use crate::decoder::{ResolvedCandidate, SelectedLexeme};
+pub use crate::learning::CommitRecord;
 use crate::normalizer::CodeNormalizer;
 use crate::key_mapper::KeyMapper;
 use crate::segmentation::SegmentationGraph;
@@ -54,6 +57,14 @@ pub trait InputPipeline: Send + Sync {
     fn refresh(&self, _composition: &str) -> Result<Vec<ResolvedCandidate>, PipelineError> {
         Ok(Vec::new())
     }
+
+    fn schema_id(&self) -> &str {
+        "default"
+    }
+
+    fn commit_applied(&self, _token: CommitToken, _record: CommitRecord) {}
+
+    fn rollback_learning(&self, _token: CommitToken) {}
 }
 
 // ── Component traits ────────────────────────────────────────────────
@@ -148,6 +159,8 @@ pub struct ComposablePipeline {
     filters: Vec<Box<dyn Filter>>,
     ranker: Box<dyn Ranker>,
     key_mapper: Option<parking_lot::Mutex<Box<dyn KeyMapper>>>,
+    learning: Option<std::sync::Arc<crate::learning::LearningService>>,
+    schema_id: String,
 }
 
 impl ComposablePipeline {
@@ -157,11 +170,34 @@ impl ComposablePipeline {
         translators: Vec<Box<dyn Translator>>, filters: Vec<Box<dyn Filter>>,
         ranker: Box<dyn Ranker>,
     ) -> Self {
-        Self { processor: parking_lot::Mutex::new(processor), segmentor, normalizer, translators, filters, ranker, key_mapper: None }
+        Self {
+            processor: parking_lot::Mutex::new(processor),
+            segmentor,
+            normalizer,
+            translators,
+            filters,
+            ranker,
+            key_mapper: None,
+            learning: None,
+            schema_id: String::from("default"),
+        }
     }
 
     pub fn with_key_mapper(mut self, km: Box<dyn KeyMapper>) -> Self {
         self.key_mapper = Some(parking_lot::Mutex::new(km));
+        self
+    }
+
+    pub fn with_learning(
+        mut self,
+        learning: std::sync::Arc<crate::learning::LearningService>,
+    ) -> Self {
+        self.learning = Some(learning);
+        self
+    }
+
+    pub fn with_schema_id(mut self, schema_id: impl Into<String>) -> Self {
+        self.schema_id = schema_id.into();
         self
     }
 }
@@ -188,6 +224,22 @@ impl InputPipeline for ComposablePipeline {
 
     fn refresh(&self, composition: &str) -> Result<Vec<ResolvedCandidate>, PipelineError> {
         Ok(self.resolve_composition(composition, Vec::new()))
+    }
+
+    fn schema_id(&self) -> &str {
+        &self.schema_id
+    }
+
+    fn commit_applied(&self, token: CommitToken, record: CommitRecord) {
+        if let Some(learning) = &self.learning {
+            learning.commit_applied(token, record);
+        }
+    }
+
+    fn rollback_learning(&self, token: CommitToken) {
+        if let Some(learning) = &self.learning {
+            learning.rollback_learning(token);
+        }
     }
 }
 impl ComposablePipeline {

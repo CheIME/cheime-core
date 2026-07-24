@@ -10,8 +10,8 @@ pub use ids::{
     SessionEpoch, SessionId,
 };
 pub use input::{
-    Key, KeyEvent, KeyState, PlatformAction, PlatformActionKind, PlatformActionOutcome,
-    PlatformActionResult, UiCommand,
+    CommitToken, Key, KeyEvent, KeyState, PlatformAction, PlatformActionKind,
+    PlatformActionOutcome, PlatformActionResult, UiCommand,
 };
 
 /// Protocol version implemented by this core build.

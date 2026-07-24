@@ -14,6 +14,7 @@
 //! - Diagnostics = inspect event history per-word
 
 use parking_lot::Mutex;
+use cheime_model::{ActionId, CommitToken, SessionEpoch, SessionId};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -207,17 +208,17 @@ pub struct UserStore {
     db: Option<Arc<Mutex<Connection>>>,
     /// Words pending confirmation — not yet learned.
     /// Cleared (confirmed) when the next word is committed or on timeout.
-    pending: Vec<PendingLearn>,
+    pending: HashMap<CommitToken, PendingPhrase>,
+    legacy_next_action: u64,
+    legacy_last: Option<CommitToken>,
 }
 
-/// A word that was committed but not yet confirmed as learned.
-/// If the user backspaces quickly (typo correction), it's discarded.
-#[derive(Debug, Clone)]
-pub struct PendingLearn {
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingPhrase {
     pub text: String,
     pub code: String,
     pub schema: String,
-    pub timestamp: u64,
+    pub deadline_ms: u64,
 }
 
 impl UserStore {
@@ -232,7 +233,9 @@ impl UserStore {
             blocked: HashSet::new(),
             deleted: HashSet::new(),
             db: None,
-            pending: Vec::new(),
+            pending: HashMap::new(),
+            legacy_next_action: 1,
+            legacy_last: None,
         }
     }
 
@@ -250,7 +253,9 @@ impl UserStore {
             blocked: HashSet::new(),
             deleted: HashSet::new(),
             db: Some(Arc::new(Mutex::new(conn))),
-            pending: Vec::new(),
+            pending: HashMap::new(),
+            legacy_next_action: 1,
+            legacy_last: None,
         };
         store.load_from_db()?;
         Ok(store)
@@ -513,45 +518,99 @@ impl UserStore {
 
     // ── Smart learning with typo detection ──────────────────────────
 
-    /// Stage a word for learning. Previous pending words are confirmed
-    /// first (the user didn't backspace them, so they're intentional).
-    pub fn commit_pending(&mut self, text: &str, code: &str, schema: &str) {
-        // Confirm any previously pending words
-        self.confirm_all_pending();
+    pub fn stage_phrase(
+        &mut self,
+        token: CommitToken,
+        mut phrase: PendingPhrase,
+        deadline_ms: u64,
+    ) {
+        phrase.deadline_ms = deadline_ms;
+        self.pending.insert(token, phrase);
+    }
 
-        // Stage this one for later confirmation
-        self.pending.push(PendingLearn {
+    pub fn cancel_phrase(&mut self, token: CommitToken) -> bool {
+        self.pending.remove(&token).is_some()
+    }
+
+    pub fn confirm_expired(&mut self, now_ms: u64) {
+        let mut expired: Vec<_> = self
+            .pending
+            .iter()
+            .filter_map(|(token, phrase)| {
+                (phrase.deadline_ms <= now_ms).then_some(*token)
+            })
+            .collect();
+        expired.sort();
+        for token in expired {
+            if let Some(phrase) = self.pending.remove(&token) {
+                self.apply(UserEvent::learn_word(
+                    &self.device_id,
+                    &phrase.schema,
+                    &phrase.text,
+                    &phrase.code,
+                ));
+            }
+        }
+    }
+
+    /// Compatibility wrapper for older clients. New engine sessions use
+    /// action-addressable `stage_phrase`.
+    pub fn commit_pending(&mut self, text: &str, code: &str, schema: &str) {
+        self.confirm_all_pending();
+        let token = CommitToken {
+            session: SessionId::new(0),
+            epoch: SessionEpoch::new(0),
+            action_id: ActionId::new(self.legacy_next_action),
+        };
+        self.legacy_next_action += 1;
+        self.legacy_last = Some(token);
+        self.stage_phrase(token, PendingPhrase {
             text: text.to_owned(),
             code: code.to_owned(),
             schema: schema.to_owned(),
-            timestamp: now_secs(),
-        });
+            deadline_ms: u64::MAX,
+        }, u64::MAX);
     }
 
     /// User hit backspace quickly after a commit — this was a typo.
     /// Remove the most recently staged word without learning it.
     pub fn undo_last(&mut self) -> bool {
-        self.pending.pop().is_some()
+        self.legacy_last
+            .take()
+            .is_some_and(|token| self.cancel_phrase(token))
     }
 
     /// Confirm all pending words as actually learned.
     pub fn confirm_all_pending(&mut self) {
-        let pending: Vec<_> = self.pending.drain(..).collect();
-        for p in pending {
+        let mut tokens: Vec<_> = self.pending.keys().copied().collect();
+        tokens.sort();
+        for token in tokens {
+            let Some(phrase) = self.pending.remove(&token) else {
+                continue;
+            };
             self.apply(UserEvent::learn_word(
                 &self.device_id,
-                &p.schema,
-                &p.text,
-                &p.code,
+                &phrase.schema,
+                &phrase.text,
+                &phrase.code,
             ));
         }
+        self.legacy_last = None;
     }
 
     pub fn query(&self, code: &str) -> Vec<UserCandidate> {
+        self.query_matching(|stored| stored == code)
+    }
+
+    pub fn query_prefix(&self, prefix: &str) -> Vec<UserCandidate> {
+        self.query_matching(|stored| stored.starts_with(prefix))
+    }
+
+    fn query_matching(&self, matches: impl Fn(&str) -> bool) -> Vec<UserCandidate> {
         let mut cs = Vec::new();
         let mut seen = HashSet::new();
         for ((schema, sc), texts) in &self.code_texts {
-            if sc != code {
+            if !matches(sc) {
                 continue;
             }
             for text in texts {
@@ -604,6 +663,64 @@ impl UserStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cheime_model::{ActionId, CommitToken, SessionEpoch, SessionId};
+
+    fn token_for_session(session: u64, action: u64) -> CommitToken {
+        CommitToken {
+            session: SessionId::new(session),
+            epoch: SessionEpoch::new(1),
+            action_id: ActionId::new(action),
+        }
+    }
+
+    fn phrase(text: &str, code: &str) -> PendingPhrase {
+        PendingPhrase {
+            text: text.to_owned(),
+            code: code.to_owned(),
+            schema: String::from("qp"),
+            deadline_ms: 0,
+        }
+    }
+
+    #[test]
+    fn pending_phrase_is_learned_only_at_deadline() {
+        let mut store = UserStore::new("test");
+        let token = token_for_session(1, 1);
+        store.stage_phrase(token, phrase("旎皓", "ni hao"), 10_000);
+        store.confirm_expired(9_999);
+        assert!(store.query("ni hao").is_empty());
+        store.confirm_expired(10_000);
+        assert_eq!(store.query("ni hao")[0].text, "旎皓");
+    }
+
+    #[test]
+    fn rollback_before_deadline_never_persists_phrase() {
+        let mut store = UserStore::new("test");
+        let token = token_for_session(1, 2);
+        store.stage_phrase(token, phrase("旎皓", "ni hao"), 10_000);
+        assert!(store.cancel_phrase(token));
+        assert!(!store.cancel_phrase(token));
+        store.confirm_expired(20_000);
+        assert!(store.query("ni hao").is_empty());
+    }
+
+    #[test]
+    fn concurrent_session_action_ids_do_not_collide() {
+        let mut store = UserStore::new("test");
+        store.stage_phrase(
+            token_for_session(1, 1),
+            phrase("甲", "jia"),
+            10,
+        );
+        store.stage_phrase(
+            token_for_session(2, 1),
+            phrase("乙", "yi"),
+            10,
+        );
+        store.confirm_expired(10);
+        assert_eq!(store.query("jia")[0].text, "甲");
+        assert_eq!(store.query("yi")[0].text, "乙");
+    }
 
     #[test]
     fn learn_word_increases_frequency() {
