@@ -10,6 +10,7 @@ pub mod normalizer;
 pub mod processor;
 pub mod punctuator;
 pub mod ranker;
+pub mod segmentation;
 pub mod segmentor;
 pub mod simplifier;
 pub mod translator;
@@ -17,6 +18,7 @@ pub use builtin::BuiltinPipeline;
 use cheime_model::{Candidate, Key, KeyEvent};
 use crate::normalizer::CodeNormalizer;
 use crate::key_mapper::KeyMapper;
+use crate::segmentation::SegmentationGraph;
 use thiserror::Error;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PipelineIntent {
@@ -80,7 +82,7 @@ pub struct CodeSegment {
 }
 
 pub trait Segmentor: Send + Sync {
-    fn segment(&self, composition: &str) -> Vec<CodeSegment>;
+    fn segment(&self, composition: &str) -> SegmentationGraph;
 }
 
 // ── Translator ──────────────────────────────────────────────────────
@@ -163,10 +165,13 @@ impl ComposablePipeline {
         if proc_out.consumed {
             return Ok(PipelineUpdate { composition: proc_out.composition, candidates: vec![], intent: proc_out.intent });
         }
-        let segments = self.segmentor.segment(&proc_out.composition);
-        let variants: Vec<CodeSegment> = if let Some(n) = &self.normalizer {
-            n.normalize_all(&segments)
-        } else { segments };
+        let graph = self.segmentor.segment(&proc_out.composition);
+        let normalized = if let Some(n) = &self.normalizer {
+            n.normalize_graph(&graph)
+        } else {
+            graph
+        };
+        let variants = normalized.primary_path();
         let mut candidates = proc_out.inject_candidates;
         for t in &self.translators { candidates.extend(t.translate(&variants)); }
         for f in &self.filters { candidates = f.filter(candidates); }

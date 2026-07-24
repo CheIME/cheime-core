@@ -1,4 +1,5 @@
-use crate::{CodeSegment, ComposablePipeline, Filter, Processor, Ranker, Segmentor, Translator};
+use crate::{ComposablePipeline, Filter, Processor, Ranker, Segmentor, Translator};
+use crate::segmentation::{InputSpan, SegmentationGraph, SyllableEdge, SyllableKind};
 use crate::simplifier::{Conversion, SimplifierFilter};
 use cheime_config::schema::{EngineConfig, FilterConfig, SchemaConfig, SegmentorConfig};
 use cheime_dictionary::CompiledIndex;
@@ -14,9 +15,17 @@ pub use crate::translator::{DictTranslator, PassthroughTranslator, UserDictTrans
 
 struct PassthroughSegmentor;
 impl Segmentor for PassthroughSegmentor {
-    fn segment(&self, c: &str) -> Vec<CodeSegment> {
-        if c.is_empty() { return vec![]; }
-        vec![CodeSegment { code: c.to_owned(), tag: "passthrough".into() }]
+    fn segment(&self, c: &str) -> SegmentationGraph {
+        let mut graph = SegmentationGraph::new(c.len());
+        if !c.is_empty() {
+            graph.add_edge(SyllableEdge {
+                span: InputSpan::new(0, c.len()),
+                raw: c.to_owned(),
+                canonical: c.to_owned(),
+                kind: SyllableKind::Raw,
+            });
+        }
+        graph
     }
 }
 

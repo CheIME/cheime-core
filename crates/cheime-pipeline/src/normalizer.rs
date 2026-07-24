@@ -5,6 +5,7 @@
 //! Each rule is a typed struct, not an opaque regex.
 
 use crate::CodeSegment;
+use crate::segmentation::{SegmentationGraph, SyllableEdge};
 use std::collections::HashMap;
 
 /// Expands a code segment into variant spellings.
@@ -17,6 +18,26 @@ pub trait CodeNormalizer: Send + Sync {
     /// Default: per-segment normalize.
     fn normalize_all(&self, segments: &[CodeSegment]) -> Vec<CodeSegment> {
         segments.iter().flat_map(|s| self.normalize(s)).collect()
+    }
+
+    fn normalize_graph(&self, graph: &SegmentationGraph) -> SegmentationGraph {
+        let mut normalized = SegmentationGraph::new(graph.input_len());
+        for edge in graph.edges() {
+            let segment = CodeSegment {
+                code: edge.canonical.clone(),
+                tag: String::from("pinyin"),
+            };
+            for variant in self.normalize(&segment) {
+                normalized.add_edge(SyllableEdge {
+                    span: edge.span,
+                    raw: edge.raw.clone(),
+                    canonical: variant.code,
+                    kind: edge.kind,
+                });
+            }
+        }
+        normalized.finish();
+        normalized
     }
 }
 
@@ -203,6 +224,14 @@ impl CodeNormalizer for CompositeNormalizer {
         }
         current
     }
+
+    fn normalize_graph(&self, graph: &SegmentationGraph) -> SegmentationGraph {
+        let mut current = graph.clone();
+        for normalizer in &self.normalizers {
+            current = normalizer.normalize_graph(&current);
+        }
+        current
+    }
 }
 
 
@@ -211,6 +240,25 @@ impl CodeNormalizer for CompositeNormalizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::segmentation::{InputSpan, SegmentationGraph, SyllableEdge, SyllableKind};
+
+    #[test]
+    fn graph_normalization_preserves_span_and_kind() {
+        let mut graph = SegmentationGraph::new(5);
+        graph.add_edge(SyllableEdge {
+            span: InputSpan::new(0, 5),
+            raw: String::from("zhong"),
+            canonical: String::from("zhong"),
+            kind: SyllableKind::Complete,
+        });
+
+        let normalized = FuzzyNormalizer::standard().normalize_graph(&graph);
+        assert!(normalized.edges_from(0).iter().any(|edge| {
+            edge.span == InputSpan::new(0, 5)
+                && edge.canonical == "zong"
+                && edge.kind == SyllableKind::Complete
+        }));
+    }
 
     #[test]
     fn fuzzy_zh_to_z() {
