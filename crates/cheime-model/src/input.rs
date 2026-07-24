@@ -1,5 +1,12 @@
-use crate::{ActionId, CandidateId, Revision, SessionEpoch};
+use crate::{ActionId, CandidateId, Revision, SessionEpoch, SessionId};
 use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct CommitToken {
+    pub session: SessionId,
+    pub epoch: SessionEpoch,
+    pub action_id: ActionId,
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Key {

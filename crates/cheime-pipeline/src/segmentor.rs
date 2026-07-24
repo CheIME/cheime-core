@@ -2,7 +2,8 @@
 //!
 //! Complete syllable coverage is preferred over a local longest match.
 
-use crate::{CodeSegment, Segmentor};
+use crate::Segmentor;
+use crate::segmentation::{InputSpan, SegmentationGraph, SyllableEdge, SyllableKind};
 
 /// All valid Hanyu Pinyin syllables (without tones).
 pub(crate) const PINYIN_SYLLABLES: &[&str] = &[
@@ -64,74 +65,53 @@ impl Trie {
         trie
     }
 
-    fn segment(&self, input: &str) -> Vec<String> {
-        self.complete_segmentation(input)
-            .unwrap_or_else(|| self.greedy_segment(input))
-    }
-
-    fn complete_segmentation(&self, input: &str) -> Option<Vec<String>> {
-        if !input.bytes().all(|byte| byte.is_ascii_lowercase()) {
-            return None;
-        }
-
+    fn append_edges(&self, input: &str, start: usize, graph: &mut SegmentationGraph) {
         let bytes = input.as_bytes();
-        let mut paths = vec![None; bytes.len() + 1];
-        paths[bytes.len()] = Some(Vec::new());
-
-        for pos in (0..bytes.len()).rev() {
-            let mut node = self;
-            let mut end = pos;
-            while end < bytes.len() {
-                let idx = (bytes[end] - b'a') as usize;
-                let Some(child) = &node.children[idx] else {
-                    break;
-                };
-                node = child;
-                end += 1;
-
-                if node.is_end && paths[end].is_some() {
-                    let mut path = Vec::with_capacity(paths[end].as_ref()?.len() + 1);
-                    path.push(input[pos..end].to_owned());
-                    path.extend(paths[end].as_ref()?.iter().cloned());
-                    paths[pos] = Some(path);
-                }
+        let mut node = self;
+        let mut advanced = false;
+        for end in start..bytes.len() {
+            let byte = bytes[end];
+            if !byte.is_ascii_lowercase() {
+                break;
+            }
+            let index = (byte - b'a') as usize;
+            let Some(child) = &node.children[index] else {
+                break;
+            };
+            node = child;
+            advanced = true;
+            if node.is_end {
+                let end = end + 1;
+                graph.add_edge(SyllableEdge {
+                    span: InputSpan::new(start, end),
+                    raw: input[start..end].to_owned(),
+                    canonical: input[start..end].to_owned(),
+                    kind: SyllableKind::Complete,
+                });
+            }
+            if end + 1 == bytes.len() && !node.is_end {
+                graph.add_edge(SyllableEdge {
+                    span: InputSpan::new(start, bytes.len()),
+                    raw: input[start..].to_owned(),
+                    canonical: input[start..].to_owned(),
+                    kind: SyllableKind::Incomplete,
+                });
             }
         }
 
-        paths[0].clone()
-    }
-
-    fn greedy_segment(&self, input: &str) -> Vec<String> {
-        let mut result = Vec::new();
-        let bytes = input.as_bytes();
-        let mut pos = 0;
-        while pos < bytes.len() {
-            let mut node = self;
-            let mut longest = pos;
-            for i in pos..bytes.len() {
-                let b = bytes[i];
-                if !b.is_ascii_lowercase() {
-                    break;
-                }
-                let idx = (b - b'a') as usize;
-                match &node.children[idx] {
-                    Some(child) => {
-                        node = child;
-                        if node.is_end {
-                            longest = i + 1;
-                        }
-                    }
-                    None => break,
-                }
-            }
-            if longest == pos {
-                // No valid syllable — take the whole remainder
-                longest = bytes.len();
-            }
-            result.push(input[pos..longest].to_owned());
-            pos = longest;
+        if !advanced || graph.edges_from(start).is_empty() {
+            let end = input[start..]
+                .char_indices()
+                .nth(1)
+                .map(|(offset, _)| start + offset)
+                .unwrap_or(input.len());
+            graph.add_edge(SyllableEdge {
+                span: InputSpan::new(start, end),
+                raw: input[start..end].to_owned(),
+                canonical: input[start..end].to_owned(),
+                kind: SyllableKind::Raw,
+            });
         }
-        result
     }
 }
 
@@ -155,29 +135,63 @@ impl Default for PinyinSegmentor {
 }
 
 impl Segmentor for PinyinSegmentor {
-    fn segment(&self, composition: &str) -> Vec<CodeSegment> {
-        if composition.is_empty() {
-            return Vec::new();
+    fn segment(&self, composition: &str) -> SegmentationGraph {
+        let mut graph = SegmentationGraph::new(composition.len());
+        for (start, _) in composition.char_indices() {
+            self.trie.append_edges(composition, start, &mut graph);
         }
-        let codes = self.trie.segment(composition);
-        codes
-            .into_iter()
-            .map(|code| CodeSegment {
-                code,
-                tag: String::from("pinyin"),
-            })
-            .collect()
+        graph.finish();
+        graph
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::segmentation::{InputSpan, SyllableKind};
+
+    #[test]
+    fn nih_keeps_complete_ni_and_incomplete_h() {
+        let graph = PinyinSegmentor::new().segment("nih");
+        assert!(graph.edges_from(0).iter().any(|edge| {
+            edge.span == InputSpan::new(0, 2)
+                && edge.canonical == "ni"
+                && edge.kind == SyllableKind::Complete
+        }));
+        assert!(graph.edges_from(2).iter().any(|edge| {
+            edge.span == InputSpan::new(2, 3)
+                && edge.canonical == "h"
+                && edge.kind == SyllableKind::Incomplete
+        }));
+    }
+
+    #[test]
+    fn xianshi_retains_ambiguous_first_edges() {
+        let graph = PinyinSegmentor::new().segment("xianshi");
+        let first: Vec<_> = graph
+            .edges_from(0)
+            .iter()
+            .filter(|edge| edge.kind == SyllableKind::Complete)
+            .map(|edge| edge.canonical.as_str())
+            .collect();
+        assert!(first.contains(&"xi"));
+        assert!(first.contains(&"xian"));
+    }
+
+    #[test]
+    fn invalid_fragment_advances_as_raw() {
+        let graph = PinyinSegmentor::new().segment("ni1");
+        assert!(
+            graph.edges_from(2).iter().any(|edge| {
+                edge.span == InputSpan::new(2, 3) && edge.kind == SyllableKind::Raw
+            })
+        );
+    }
 
     #[test]
     fn segment_zhongguo() {
         let seg = PinyinSegmentor::new();
-        let result = seg.segment("zhongguo");
+        let result = seg.segment("zhongguo").primary_path();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].code, "zhong");
         assert_eq!(result[0].tag, "pinyin");
@@ -187,7 +201,7 @@ mod tests {
     #[test]
     fn segment_nihao() {
         let seg = PinyinSegmentor::new();
-        let result = seg.segment("nihao");
+        let result = seg.segment("nihao").primary_path();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].code, "ni");
         assert_eq!(result[1].code, "hao");
@@ -196,7 +210,7 @@ mod tests {
     #[test]
     fn segment_partial_input() {
         let seg = PinyinSegmentor::new();
-        let result = seg.segment("zhongg");
+        let result = seg.segment("zhongg").primary_path();
         // "zhong" is a syllable, "g" is dangling
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].code, "zhong");
@@ -211,22 +225,22 @@ mod tests {
     }
 
     #[test]
+    fn repeated_syllables_do_not_choose_a_dead_end() {
+        let seg = PinyinSegmentor::new();
+        let result = seg.segment("ninininini").primary_path();
+        let codes: Vec<&str> = result.iter().map(|segment| segment.code.as_str()).collect();
+
+        assert_eq!(codes, ["ni", "ni", "ni", "ni", "ni"]);
+    }
+
+    #[test]
     fn ambiguous_xianshiqi() {
         let seg = PinyinSegmentor::new();
-        let result = seg.segment("xianshiqi");
+        let result = seg.segment("xianshiqi").primary_path();
         // greedy gives: xian-shi-qi (not xi-an-shi-qi)
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].code, "xian");
         assert_eq!(result[1].code, "shi");
         assert_eq!(result[2].code, "qi");
-    }
-
-    #[test]
-    fn repeated_syllables_do_not_choose_a_dead_end() {
-        let seg = PinyinSegmentor::new();
-        let result = seg.segment("ninininini");
-        let codes: Vec<&str> = result.iter().map(|segment| segment.code.as_str()).collect();
-
-        assert_eq!(codes, ["ni", "ni", "ni", "ni", "ni"]);
     }
 }

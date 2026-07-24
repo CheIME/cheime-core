@@ -4,7 +4,7 @@ mod state;
 
 pub use state::Session;
 
-use cheime_model::{ActionId, Revision, Sequence, SessionEpoch};
+use cheime_model::{ActionId, Revision, Sequence, SessionEpoch, SessionId};
 use cheime_pipeline::PipelineError;
 use thiserror::Error;
 
@@ -14,6 +14,11 @@ pub enum SessionError {
     StaleEpoch {
         received: SessionEpoch,
         expected: SessionEpoch,
+    },
+    #[error("message session {received:?} does not match current session {expected:?}")]
+    WrongSession {
+        received: SessionId,
+        expected: SessionId,
     },
     #[error("message sequence {received:?} is not newer than {last:?}")]
     StaleSequence { received: Sequence, last: Sequence },

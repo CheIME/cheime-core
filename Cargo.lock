@@ -210,7 +210,9 @@ dependencies = [
  "cheime-model",
  "cheime-pipeline",
  "cheime-protocol",
+ "cheime-user-data",
  "criterion",
+ "parking_lot",
  "thiserror",
 ]
 

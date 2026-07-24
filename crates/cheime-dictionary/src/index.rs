@@ -8,6 +8,27 @@ use std::sync::Arc;
 
 use crate::tiered::TieredIndex;
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LexiconEntry {
+    pub text: String,
+    pub code: String,
+    pub weight: i64,
+    pub source: String,
+    pub completion: bool,
+}
+
+impl LexiconEntry {
+    fn into_candidate(self, id: u64) -> Candidate {
+        Candidate {
+            id: CandidateId::new(id),
+            text: self.text,
+            annotation: Some(self.code),
+            source: self.source,
+            is_emoji: false,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // MemoryIndex — the original full-in-memory index
 // ---------------------------------------------------------------------------
@@ -77,31 +98,33 @@ impl MemoryIndex {
     }
 
     /// Exact code lookup (single key).
-    pub fn query(&self, code: &str) -> Vec<Candidate> {
+    pub fn lookup_exact(&self, code: &str) -> Vec<LexiconEntry> {
         let hash8 = self.source_hash.chars().take(8).collect::<String>();
         self.entries
             .get(code)
             .into_iter()
             .flatten()
-            .enumerate()
-            .map(|(idx, (text, _))| Candidate {
-                id: CandidateId::new(idx as u64 + 1),
+            .map(|(text, weight)| LexiconEntry {
                 text: text.clone(),
-                annotation: Some(code.to_owned()),
+                code: code.to_owned(),
+                weight: weight.unwrap_or(1),
                 source: format!("dict:{hash8}"),
-                is_emoji: false,
+                completion: false,
             })
             .collect()
     }
 
     /// Prefix search: all entries whose code starts with `prefix`.
     /// Returns up to `limit` candidates, sorted by weight descending.
-    pub fn query_prefix(&self, prefix: &str, limit: usize) -> Vec<Candidate> {
+    pub fn lookup_prefix(&self, prefix: &str, limit: usize) -> Vec<LexiconEntry> {
         use std::collections::BinaryHeap;
+
+        if limit == 0 {
+            return Vec::new();
+        }
         let end = format!("{prefix}\u{10FFFF}");
         let range = self.entries.range(prefix.to_string()..=end);
-
-        let mut heap: BinaryHeap<(i64, String, String)> = BinaryHeap::new();
+        let mut heap = BinaryHeap::new();
 
         for (code, entries) in range {
             for (text, weight) in entries {
@@ -135,14 +158,29 @@ impl MemoryIndex {
         let hash8 = self.source_hash.chars().take(8).collect::<String>();
         results
             .into_iter()
-            .enumerate()
-            .map(|(idx, (_w, text, code))| Candidate {
-                id: CandidateId::new(idx as u64 + 1),
+            .map(|(weight, text, code)| LexiconEntry {
+                completion: code != prefix,
                 text,
-                annotation: (!code.is_empty()).then_some(code),
+                code,
+                weight,
                 source: format!("dict:{hash8}"),
-                is_emoji: false,
             })
+            .collect()
+    }
+
+    pub fn query(&self, code: &str) -> Vec<Candidate> {
+        self.lookup_exact(code)
+            .into_iter()
+            .enumerate()
+            .map(|(index, entry)| entry.into_candidate(index as u64 + 1))
+            .collect()
+    }
+
+    pub fn query_prefix(&self, prefix: &str, limit: usize) -> Vec<Candidate> {
+        self.lookup_prefix(prefix, limit)
+            .into_iter()
+            .enumerate()
+            .map(|(index, entry)| entry.into_candidate(index as u64 + 1))
             .collect()
     }
 }
@@ -228,6 +266,20 @@ impl CompiledIndex {
         match self {
             CompiledIndex::Memory(m) => m.query_prefix(prefix, limit),
             CompiledIndex::Tiered(t) => t.query_prefix(prefix, limit),
+        }
+    }
+
+    pub fn lookup_exact(&self, code: &str) -> Vec<LexiconEntry> {
+        match self {
+            CompiledIndex::Memory(m) => m.lookup_exact(code),
+            CompiledIndex::Tiered(t) => t.lookup_exact(code),
+        }
+    }
+
+    pub fn lookup_prefix(&self, prefix: &str, limit: usize) -> Vec<LexiconEntry> {
+        match self {
+            CompiledIndex::Memory(m) => m.lookup_prefix(prefix, limit),
+            CompiledIndex::Tiered(t) => t.lookup_prefix(prefix, limit),
         }
     }
 }

@@ -1,4 +1,4 @@
-use super::{SessionDriver, drain::normalized_pinyin};
+use super::SessionDriver;
 use crate::interactive::app::AppState;
 use cheime_model::{
     CORE_PROTOCOL_VERSION, ClientInstanceId, DeploymentGeneration, Key, KeyEvent, KeyState,
@@ -44,10 +44,8 @@ fn driver() -> SessionDriver<BuiltinPipeline> {
 fn key_updates_snapshot_without_modifying_document() {
     let mut driver = driver();
     let mut state = AppState::new();
-    let store = Arc::new(Mutex::new(UserStore::new("test")));
-
     let messages = driver
-        .send_and_apply(key(1, Key::Character('n')), &mut state, &store)
+        .send_and_apply(key(1, Key::Character('n')), &mut state)
         .unwrap();
 
     assert_eq!(state.document().text(), "");
@@ -60,18 +58,18 @@ fn key_updates_snapshot_without_modifying_document() {
 }
 
 #[test]
-fn commit_is_applied_acknowledged_and_learned_once() {
+fn commit_is_applied_and_acknowledged_without_cli_learning() {
     let mut driver = driver();
     let mut state = AppState::new();
     let store = Arc::new(Mutex::new(UserStore::new("test")));
 
     for (sequence, character) in [(1, 'n'), (2, 'i')] {
         driver
-            .send_and_apply(key(sequence, Key::Character(character)), &mut state, &store)
+            .send_and_apply(key(sequence, Key::Character(character)), &mut state)
             .unwrap();
     }
     let messages = driver
-        .send_and_apply(key(3, Key::Enter), &mut state, &store)
+        .send_and_apply(key(3, Key::Enter), &mut state)
         .unwrap();
 
     assert_eq!(state.document().text(), "你");
@@ -83,22 +81,20 @@ fn commit_is_applied_acknowledged_and_learned_once() {
                 if snapshot.status == SessionStatus::CommitPending
         )
     }));
-    driver.finish_learning(&store);
     let store = store.lock();
-    assert_eq!(store.frequency("quanpin", "你"), 1);
-    assert_eq!(store.query("ni")[0].text, "你");
+    assert_eq!(store.frequency("quanpin", "你"), 0);
+    assert!(store.query("ni").is_empty());
 }
 
 #[test]
 fn stale_sequence_is_returned_directly() {
     let mut driver = driver();
     let mut state = AppState::new();
-    let store = Arc::new(Mutex::new(UserStore::new("test")));
     driver
-        .send_and_apply(key(1, Key::Character('n')), &mut state, &store)
+        .send_and_apply(key(1, Key::Character('n')), &mut state)
         .unwrap();
 
-    let result = driver.send_and_apply(key(1, Key::Character('i')), &mut state, &store);
+    let result = driver.send_and_apply(key(1, Key::Character('i')), &mut state);
 
     assert!(matches!(
         result,
@@ -117,13 +113,8 @@ fn pipeline_can_lock_shared_user_store_during_dispatch() {
     let mut state = AppState::new();
 
     driver
-        .send_and_apply(key(1, Key::Character('n')), &mut state, &store)
+        .send_and_apply(key(1, Key::Character('n')), &mut state)
         .unwrap();
-}
-
-#[test]
-fn learning_code_matches_segmented_user_dictionary_lookup() {
-    assert_eq!(normalized_pinyin("zhongguo"), "zhong guo");
 }
 
 struct LockCheckingPipeline {

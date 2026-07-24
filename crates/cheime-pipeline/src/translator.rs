@@ -3,24 +3,41 @@
 //! Also includes a no-op PassthroughTranslator for when the segmentor
 //! cannot split the composition (e.g. non-pinyin input).
 
+use crate::decoder::{Decoder, DecoderOptions, Lexicon, ResolvedCandidate};
+use crate::segmentation::SegmentationGraph;
 use crate::{CodeSegment, Translator};
-use cheime_dictionary::CompiledIndex;
+use cheime_dictionary::{CompiledIndex, LexiconEntry};
 use cheime_model::{Candidate, CandidateId};
 use std::sync::Arc;
 
 /// Translates segments by querying a compiled dictionary index.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct DictTranslator {
     name: String,
     index: Arc<CompiledIndex>,
+    lexicons: Vec<Arc<dyn Lexicon>>,
+    options: DecoderOptions,
 }
 
 impl DictTranslator {
     pub fn new(name: impl Into<String>, index: Arc<CompiledIndex>) -> Self {
+        let lexicon: Arc<dyn Lexicon> = index.clone();
         Self {
             name: name.into(),
             index,
+            lexicons: vec![lexicon],
+            options: DecoderOptions::default(),
         }
+    }
+
+    pub fn with_options(mut self, options: DecoderOptions) -> Self {
+        self.options = options;
+        self
+    }
+
+    pub fn with_user_store(mut self, store: Arc<PLMutex<UserStore>>) -> Self {
+        self.lexicons.insert(0, Arc::new(UserLexicon { store }));
+        self
     }
 }
 
@@ -53,51 +70,48 @@ impl Translator for DictTranslator {
                     }
                 }
 
-                let mut per_seg: Vec<Vec<Candidate>> = Vec::with_capacity(segments.len());
-                for seg in segments {
-                    let seg_code = &seg.code;
-                    let seg_results = if seg_code.len() == 1 {
-                        self.index.query_prefix(seg_code, 5)
+                let mut per_segment = Vec::with_capacity(segments.len());
+                for segment in segments {
+                    let candidates = if segment.code.len() == 1 {
+                        self.index.query_prefix(&segment.code, 5)
                     } else {
-                        self.index.query(seg_code)
+                        self.index.query(&segment.code)
                     };
-                    per_seg.push(seg_results);
+                    per_segment.push(candidates);
                 }
-                // Produce concatenated candidates: take top-N from each segment
-                // and generate cross-product combinations (up to limit)
-                let limit = 10;
+
                 let mut combined = Vec::new();
-                let concat_text: String = per_seg
+                let concatenated: String = per_segment
                     .iter()
-                    .zip(segments.iter())
-                    .map(|(results, seg)| {
-                        if results.is_empty() {
-                            seg.code.as_str() // raw code as fallback
-                        } else {
-                            results[0].text.as_str()
-                        }
+                    .zip(segments)
+                    .map(|(candidates, segment)| {
+                        candidates
+                            .first()
+                            .map_or(segment.code.as_str(), |candidate| candidate.text.as_str())
                     })
-                    .collect::<Vec<_>>()
-                    .join("");
-                if !concat_text.is_empty() {
+                    .collect();
+                if !concatenated.is_empty() {
                     combined.push(Candidate {
                         id: CandidateId::new(1),
-                        text: concat_text,
+                        text: concatenated,
                         annotation: None,
-                        source: "dict:concat".to_string(),
+                        source: String::from("dict:concat"),
                         is_emoji: false,
                     });
                 }
-                for seg_results in &per_seg {
-                    for c in seg_results {
-                        if combined.len() >= limit {
+                for candidates in &per_segment {
+                    for candidate in candidates {
+                        if combined.len() == 10 {
                             break;
                         }
-                        if !combined.iter().any(|existing| existing.text == c.text) {
-                            combined.push(c.clone());
+                        if !combined
+                            .iter()
+                            .any(|existing| existing.text == candidate.text)
+                        {
+                            combined.push(candidate.clone());
                         }
                     }
-                    if combined.len() >= limit {
+                    if combined.len() == 10 {
                         break;
                     }
                 }
@@ -112,6 +126,10 @@ impl Translator for DictTranslator {
                 results
             }
         }
+    }
+
+    fn translate_graph(&self, graph: &SegmentationGraph) -> Vec<ResolvedCandidate> {
+        Decoder::with_options(self.lexicons.clone(), self.options).decode("", graph)
     }
 }
 
@@ -155,6 +173,42 @@ pub struct UserDictTranslator {
     store: Arc<PLMutex<UserStore>>,
 }
 
+#[derive(Debug)]
+struct UserLexicon {
+    store: Arc<PLMutex<UserStore>>,
+}
+
+impl Lexicon for UserLexicon {
+    fn exact(&self, code: &str) -> Vec<LexiconEntry> {
+        self.entries(self.store.lock().query(code), false)
+    }
+
+    fn prefix(&self, code: &str, limit: usize) -> Vec<LexiconEntry> {
+        let mut entries = self.entries(self.store.lock().query_prefix(code), true);
+        entries.truncate(limit);
+        entries
+    }
+}
+
+impl UserLexicon {
+    fn entries(
+        &self,
+        candidates: Vec<cheime_user_data::UserCandidate>,
+        completion: bool,
+    ) -> Vec<LexiconEntry> {
+        candidates
+            .into_iter()
+            .map(|candidate| LexiconEntry {
+                text: candidate.text,
+                code: candidate.code,
+                weight: candidate.frequency,
+                source: String::from("user_dict"),
+                completion,
+            })
+            .collect()
+    }
+}
+
 impl UserDictTranslator {
     pub fn new(store: Arc<PLMutex<UserStore>>) -> Self {
         Self { store }
@@ -184,6 +238,37 @@ impl Translator for UserDictTranslator {
                 is_emoji: false,
             })
             .collect()
+    }
+
+    fn translate_graph(&self, graph: &SegmentationGraph) -> Vec<ResolvedCandidate> {
+        if graph
+            .edges()
+            .all(|edge| edge.kind == crate::segmentation::SyllableKind::Raw)
+        {
+            let path = graph.primary_path();
+            let code = path
+                .iter()
+                .map(|segment| segment.code.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            return self
+                .translate(&path)
+                .into_iter()
+                .map(|candidate| {
+                    ResolvedCandidate::from_display(
+                        candidate,
+                        crate::segmentation::InputSpan::new(0, graph.input_len()),
+                        code.clone(),
+                        true,
+                        0,
+                    )
+                })
+                .collect();
+        }
+        let lexicon: Arc<dyn Lexicon> = Arc::new(UserLexicon {
+            store: Arc::clone(&self.store),
+        });
+        Decoder::new(vec![lexicon]).decode("", graph)
     }
 }
 

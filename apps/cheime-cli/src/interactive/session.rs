@@ -1,9 +1,5 @@
 use cheime_pipeline::InputPipeline;
 use cheime_session::Session;
-use cheime_user_data::UserStore;
-use parking_lot::Mutex;
-use std::sync::Arc;
-
 mod drain;
 
 pub(super) struct SessionDriver<P> {
@@ -16,10 +12,6 @@ where
 {
     pub(super) fn new(session: Session<P>) -> Self {
         Self { session }
-    }
-
-    pub(super) fn finish_learning(&self, store: &Arc<Mutex<UserStore>>) {
-        store.lock().confirm_all_pending();
     }
 }
 

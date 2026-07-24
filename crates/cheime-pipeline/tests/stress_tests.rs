@@ -117,6 +117,24 @@ fn typing_nihao_ranked_correctly() {
     }
 }
 
+#[test]
+fn incomplete_nih_produces_nihao_at_final_input() {
+    let p = real_pipeline();
+    let mut comp = String::new();
+    let mut final_candidates = Vec::new();
+    for ch in "nih".chars() {
+        let update = p.apply(&comp, &key(ch)).unwrap();
+        comp = update.composition;
+        final_candidates = update.candidates;
+    }
+    assert!(
+        final_candidates
+            .iter()
+            .any(|candidate| candidate.text == "你好"),
+        "incomplete pinyin 'nih' should produce 你好"
+    );
+}
+
 // ── Backspace + re-type ────────────────────────────────────────────
 
 #[test]
@@ -419,7 +437,6 @@ fn fuzzy_pinyin_matches_with_normalizer() {
         "should produce candidates for zhong with fuzzy normalizer in pipeline"
     );
 }
-
 #[test]
 fn punctuator_half_shape_does_not_convert() {
     let mut full = BTreeMap::new();

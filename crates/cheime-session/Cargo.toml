@@ -13,7 +13,9 @@ cheime-protocol = { path = "../cheime-protocol" }
 thiserror.workspace = true
 [dev-dependencies]
 cheime-dictionary = { path = "../cheime-dictionary" }
+cheime-user-data = { path = "../cheime-user-data" }
 criterion.workspace = true
+parking_lot.workspace = true
 
 [[bench]]
 name = "session_bench"

@@ -5,11 +5,8 @@ use cheime_model::{
 use cheime_pipeline::InputPipeline;
 use cheime_protocol::{FrontendMessage, MessageHeader};
 use cheime_session::Session;
-use cheime_user_data::UserStore;
-use parking_lot::Mutex;
 use std::io;
 use std::path::Path;
-use std::sync::Arc;
 
 use super::app::AppState;
 use super::input::{self, AppAction, SessionCommand};
@@ -21,7 +18,6 @@ use super::terminal::Terminal;
 
 pub(crate) fn run_interactive<P: InputPipeline>(
     session: Session<P>,
-    store: Arc<Mutex<UserStore>>,
     log_path: &Path,
 ) -> io::Result<()> {
     let mut log = RunLog::open(log_path)?;
@@ -35,14 +31,11 @@ pub(crate) fn run_interactive<P: InputPipeline>(
     let result = event_loop(
         &mut driver,
         &mut state,
-        &store,
         &terminal,
         (columns, rows),
         log_path,
         &mut log,
     );
-    driver.finish_learning(&store);
-
     match &result {
         Ok(()) => log.append("session stopped")?,
         Err(error) => {
@@ -55,7 +48,6 @@ pub(crate) fn run_interactive<P: InputPipeline>(
 fn event_loop<P: InputPipeline>(
     driver: &mut SessionDriver<P>,
     state: &mut AppState,
-    store: &Arc<Mutex<UserStore>>,
     terminal: &Terminal,
     mut size: (u16, u16),
     log_path: &Path,
@@ -76,7 +68,7 @@ fn event_loop<P: InputPipeline>(
                 sequence += 1;
                 append_best_effort(log, state, &format!("frontend {message:?}"));
 
-                match driver.send_and_apply(message, state, store) {
+                match driver.send_and_apply(message, state) {
                     Ok(messages) => {
                         for message in messages {
                             append_best_effort(log, state, &format!("engine {message:?}"));

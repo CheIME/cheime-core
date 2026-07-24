@@ -2,4 +2,4 @@
 
 pub mod event;
 
-pub use event::{UserCandidate, UserEvent, UserStore};
+pub use event::{PendingPhrase, UserCandidate, UserEvent, UserStore};

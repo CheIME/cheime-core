@@ -280,7 +280,6 @@ impl std::error::Error for CacheError {}
 
 // ── Tests ─────────────────────────────────────────────────────────
 
-#[allow(clippy::cloned_ref_to_slice_refs)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -310,7 +309,7 @@ mod tests {
         // First build — cache miss
         let idx1 = cache
             .load_or_build(
-                &[file.clone()],
+                std::slice::from_ref(&file),
                 "test",
                 &columns(),
                 DeploymentGeneration::new(1),
@@ -321,7 +320,7 @@ mod tests {
         // Second build — cache hit, same content
         let idx2 = cache
             .load_or_build(
-                &[file.clone()],
+                std::slice::from_ref(&file),
                 "test",
                 &columns(),
                 DeploymentGeneration::new(1),
@@ -339,7 +338,7 @@ mod tests {
 
         let idx1 = cache
             .load_or_build(
-                &[file.clone()],
+                std::slice::from_ref(&file),
                 "test",
                 &columns(),
                 DeploymentGeneration::new(1),
@@ -351,7 +350,7 @@ mod tests {
         fs::write(&file, "新\txin\t500\n").unwrap();
         let idx2 = cache
             .load_or_build(
-                &[file.clone()],
+                std::slice::from_ref(&file),
                 "test",
                 &columns(),
                 DeploymentGeneration::new(1),
@@ -430,7 +429,7 @@ mod tests {
 
         cache
             .load_or_build(
-                &[file.clone()],
+                std::slice::from_ref(&file),
                 "test",
                 &columns(),
                 DeploymentGeneration::new(1),

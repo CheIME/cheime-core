@@ -1,8 +1,9 @@
 #![forbid(unsafe_code)]
 
 use cheime_model::{
-    CORE_PROTOCOL_VERSION, CandidateSnapshot, ClientInstanceId, DeploymentGeneration, KeyEvent,
-    PlatformAction, PlatformActionResult, Revision, Sequence, SessionEpoch, SessionId, UiCommand,
+    CORE_PROTOCOL_VERSION, CandidateSnapshot, ClientInstanceId, CommitToken, DeploymentGeneration,
+    KeyEvent, PlatformAction, PlatformActionResult, Revision, Sequence, SessionEpoch, SessionId,
+    UiCommand,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -38,6 +39,10 @@ pub enum FrontendMessage {
         header: MessageHeader,
         result: PlatformActionResult,
     },
+    RollbackLearning {
+        header: MessageHeader,
+        token: CommitToken,
+    },
 }
 
 impl FrontendMessage {
@@ -48,7 +53,8 @@ impl FrontendMessage {
             | Self::CloseSession { header }
             | Self::KeyCommand { header, .. }
             | Self::UiCommand { header, .. }
-            | Self::PlatformActionResult { header, .. } => header,
+            | Self::PlatformActionResult { header, .. }
+            | Self::RollbackLearning { header, .. } => header,
         }
     }
 }

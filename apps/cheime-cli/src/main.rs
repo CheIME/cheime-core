@@ -105,7 +105,7 @@ fn run() -> Result<(), String> {
     };
 
     let session = Session::new(header, pipeline);
-    run_interactive(session, store, &options.log)?;
+    run_interactive(session, &options.log)?;
     Ok(())
 }
 
@@ -121,10 +121,9 @@ fn open_user_store(data_dir: &Path) -> Result<UserStore, String> {
 
 fn run_interactive(
     session: Session<impl cheime_pipeline::InputPipeline>,
-    store: Arc<Mutex<UserStore>>,
     log_path: &Path,
 ) -> Result<(), String> {
-    interactive::tui::run_interactive(session, store, log_path)
+    interactive::tui::run_interactive(session, log_path)
         .map_err(|error| format!("terminal error: {error}"))
 }
 

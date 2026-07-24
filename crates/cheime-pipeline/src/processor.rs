@@ -23,7 +23,7 @@ impl Processor for DefaultProcessor {
     ) -> Result<ProcessorOutput, PipelineError> {
         let mut next = composition.to_owned();
         let (intent, consumed) = match event.key {
-            Key::Character(c) if c.is_ascii_lowercase() || c.is_ascii_digit() => {
+            Key::Character(c) if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '\'' => {
                 next.push(c);
                 (PipelineIntent::None, false)
             }
@@ -68,6 +68,15 @@ mod tests {
     fn lowercase_char_appends() {
         let out = processor().process("", &key(Key::Character('n'))).unwrap();
         assert_eq!(out.composition, "n");
+        assert!(!out.consumed);
+    }
+
+    #[test]
+    fn apostrophe_appends_as_a_syllable_boundary() {
+        let out = processor()
+            .process("xi", &key(Key::Character('\'')))
+            .unwrap();
+        assert_eq!(out.composition, "xi'");
         assert!(!out.consumed);
     }
 

@@ -210,6 +210,26 @@ fn bench_real_concurrent_lookups(c: &mut Criterion) {
     });
 }
 
+/// Bound decoder work for completion, common words, ambiguity, and long input.
+fn bench_real_decoder_inputs(c: &mut Criterion) {
+    let pipeline = rime_ice_pipeline();
+    let mut group = c.benchmark_group("pipeline/real_decode");
+    for input in [
+        "nih",
+        "nihao",
+        "xianshi",
+        "woshiyigemingtianyaoqubeijinggongzuodechengxuyuan",
+    ] {
+        group.bench_with_input(input, input, |b, input| {
+            b.iter(|| {
+                let candidates = pipeline.refresh(black_box(input)).unwrap();
+                black_box(candidates.len())
+            })
+        });
+    }
+    group.finish();
+}
+
 // ── Criterion groups ─────────────────────────────────────────────────
 
 criterion_group!(
@@ -225,6 +245,7 @@ criterion_group!(
     bench_real_typing_zhongguo,
     bench_real_typing_zhonghuarenmingongheguo,
     bench_real_concurrent_lookups,
+    bench_real_decoder_inputs,
 );
 
 criterion_main!(tiny, real);

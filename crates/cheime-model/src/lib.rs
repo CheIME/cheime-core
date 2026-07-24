@@ -10,11 +10,11 @@ pub use ids::{
     SessionEpoch, SessionId,
 };
 pub use input::{
-    Key, KeyEvent, KeyState, PlatformAction, PlatformActionKind, PlatformActionOutcome,
-    PlatformActionResult, UiCommand,
+    CommitToken, Key, KeyEvent, KeyState, PlatformAction, PlatformActionKind,
+    PlatformActionOutcome, PlatformActionResult, UiCommand,
 };
 
 /// Protocol version implemented by this core build.
-pub const CORE_PROTOCOL_VERSION: u16 = 1;
+pub const CORE_PROTOCOL_VERSION: u16 = 2;
 #[cfg(test)]
 mod serde_tests;
