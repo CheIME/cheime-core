@@ -34,3 +34,17 @@ cargo test --workspace
 | `cheime-session` | Single-writer session, revision checks, snapshots, and confirmed platform actions |
 
 The dependency direction is `model <- protocol/pipeline <- session`. Platform frontends consume the public protocol; they never access session internals.
+
+## Interactive demo
+
+`cheime-cli` is a terminal demo, not the engine's JSON host. It reads a Rime
+dictionary directory from an explicit runtime path and merges the `.dict.yaml`
+files directly inside it:
+
+```sh
+cargo run -p cheime-cli -- --dict data/dicts
+```
+
+Use `--log <FILE>` to override the default log at
+`%LOCALAPPDATA%\cheime\logs\cheime-cli.log` (or
+`$CHEIME_DATA_DIR/logs/cheime-cli.log`).
