@@ -137,7 +137,7 @@ mod tests {
             code_length: 0.0,
         }); // disable code_length
         let input = vec![
-            candidate(1, "中A", "builtin"), // 0.7
+            candidate(1, "中A", "builtin"),             // 0.7
             candidate(2, "中B", "dict:abc→simplified"), // annotated, should be 0.8
         ];
         let result = r.rank(input);

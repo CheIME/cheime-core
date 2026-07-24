@@ -4,9 +4,9 @@
 //! (no segmentation). For a full pinyin pipeline with segmentation,
 //! use `ComposablePipeline` directly with `PinyinSegmentor`.
 
-use crate::{InputPipeline, PipelineError, PipelineIntent, PipelineUpdate};
 use crate::decoder::ResolvedCandidate;
 use crate::segmentation::InputSpan;
+use crate::{InputPipeline, PipelineError, PipelineIntent, PipelineUpdate};
 use cheime_model::{Candidate, CandidateId, KeyEvent};
 use std::collections::BTreeMap;
 

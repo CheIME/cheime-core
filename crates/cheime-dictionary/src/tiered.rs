@@ -3,9 +3,9 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::index::LexiconEntry;
 use cheime_model::{Candidate, CandidateId, DeploymentGeneration};
 use cheime_tidx::TidexReader;
-use crate::index::LexiconEntry;
 
 // ---------------------------------------------------------------------------
 // HotEntry
@@ -105,12 +105,7 @@ impl TieredIndex {
             }
         }
 
-        all.sort_by(|left, right| {
-            right
-                .0
-                .cmp(&left.0)
-                .then_with(|| left.1.cmp(&right.1))
-        });
+        all.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
         let hash8 = self.source_hash.chars().take(8).collect::<String>();
         all.into_iter()
             .map(|(weight, text)| LexiconEntry {

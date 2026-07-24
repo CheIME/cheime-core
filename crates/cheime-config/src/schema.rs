@@ -84,7 +84,6 @@ pub struct FuzzyPinyinConfig {
     pub rules: Vec<String>,
 }
 
-
 // ── Processor configs ───────────────────────────────────────────────
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -226,7 +225,7 @@ pub enum TranslatorConfig {
     History,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DictTranslatorConfig {
     pub dictionary: String,
@@ -234,20 +233,48 @@ pub struct DictTranslatorConfig {
     pub r#ref: Option<String>,
     #[serde(default = "default_true")]
     pub enable_completion: bool,
+    #[serde(default = "default_true")]
+    pub enable_sentence: bool,
     #[serde(default)]
     pub initial_quality: f64,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+impl Default for DictTranslatorConfig {
+    fn default() -> Self {
+        Self {
+            dictionary: String::new(),
+            r#ref: None,
+            enable_completion: true,
+            enable_sentence: true,
+            initial_quality: 0.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TableTranslatorConfig {
     pub dictionary: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub r#ref: Option<String>,
     #[serde(default = "default_true")]
+    pub enable_completion: bool,
+    #[serde(default = "default_true")]
     pub enable_sentence: bool,
     #[serde(default)]
     pub initial_quality: f64,
+}
+
+impl Default for TableTranslatorConfig {
+    fn default() -> Self {
+        Self {
+            dictionary: String::new(),
+            r#ref: None,
+            enable_completion: true,
+            enable_sentence: true,
+            initial_quality: 0.0,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -280,7 +307,9 @@ pub struct EmojiTranslatorConfig {
     pub emoji_data: String,
 }
 
-fn default_emoji_data() -> String { String::from("data/emoji.txt") }
+fn default_emoji_data() -> String {
+    String::from("data/emoji.txt")
+}
 
 // ── Filter configs ──────────────────────────────────────────────────
 
@@ -457,6 +486,11 @@ menu:
         assert_eq!(config.engine.processors.len(), 2);
         assert_eq!(config.engine.segmentors.len(), 2);
         assert_eq!(config.engine.translators.len(), 1);
+        let TranslatorConfig::Dict(dict) = &config.engine.translators[0] else {
+            panic!("expected dictionary translator");
+        };
+        assert!(dict.enable_completion);
+        assert!(dict.enable_sentence);
         assert_eq!(config.menu.page_size, 9);
     }
 

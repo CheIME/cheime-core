@@ -378,8 +378,8 @@ impl SyllableTrie {
         while pos < bytes.len() {
             let mut node = self;
             let mut longest = pos;
-            for i in pos..bytes.len() {
-                let idx = (bytes[i] - b'a') as usize;
+            for (i, byte) in bytes.iter().enumerate().skip(pos) {
+                let idx = (*byte - b'a') as usize;
                 match &node.children[idx] {
                     Some(child) => {
                         node = child;

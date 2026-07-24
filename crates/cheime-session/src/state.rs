@@ -3,9 +3,9 @@ use cheime_model::{
     ActionId, CandidateId, CandidateSnapshot, CommitToken, PlatformAction, PlatformActionKind,
     PlatformActionOutcome, Revision, SessionStatus, UiCommand,
 };
-use cheime_pipeline::{CommitRecord, InputPipeline, PipelineIntent};
 use cheime_pipeline::decoder::{ResolvedCandidate, SelectedLexeme};
 use cheime_pipeline::segmentation::InputSpan;
+use cheime_pipeline::{CommitRecord, InputPipeline, PipelineIntent};
 use cheime_protocol::{EngineMessage, FrontendMessage, MessageHeader};
 use std::collections::BTreeMap;
 
@@ -214,7 +214,9 @@ impl<P: InputPipeline> Session<P> {
             return self.reopen_last_confirmed();
         }
 
-        let update = self.pipeline.apply(self.composition.active_input(), &event)?;
+        let update = self
+            .pipeline
+            .apply(self.composition.active_input(), &event)?;
         match update.intent {
             PipelineIntent::CommitHighlighted => self.propose_commit(),
             PipelineIntent::CommitRaw => self.propose_commit_raw(),
@@ -355,9 +357,7 @@ impl<P: InputPipeline> Session<P> {
     fn propose_commit_text(&mut self, text: &str) -> Result<Vec<EngineMessage>, SessionError> {
         let text = format!("{}{}", self.composition.confirmed_text(), text);
         let action = self.new_action(
-            PlatformActionKind::Commit {
-                text,
-            },
+            PlatformActionKind::Commit { text },
             PendingEffect::ClearComposition { commit: None },
         );
         Ok(vec![
@@ -584,11 +584,7 @@ mod tests {
         fn candidates(composition: &str) -> Vec<ResolvedCandidate> {
             match composition {
                 "nihao" => vec![ResolvedCandidate {
-                    display: cheime_model::Candidate::text(
-                        CandidateId::new(1),
-                        "旎",
-                        "test",
-                    ),
+                    display: cheime_model::Candidate::text(CandidateId::new(1), "旎", "test"),
                     consumed: InputSpan::new(0, 2),
                     canonical_code: String::from("ni"),
                     lexemes: vec![SelectedLexeme::test("旎", "ni")],
@@ -598,11 +594,7 @@ mod tests {
                     score: 90,
                 }],
                 "hao" => vec![ResolvedCandidate {
-                    display: cheime_model::Candidate::text(
-                        CandidateId::new(1),
-                        "皓",
-                        "test",
-                    ),
+                    display: cheime_model::Candidate::text(CandidateId::new(1), "皓", "test"),
                     consumed: InputSpan::new(0, 3),
                     canonical_code: String::from("hao"),
                     lexemes: vec![SelectedLexeme::test("皓", "hao")],
@@ -662,11 +654,7 @@ mod tests {
             PartialPipeline.refresh(composition)
         }
 
-        fn commit_applied(
-            &self,
-            token: cheime_model::CommitToken,
-            record: CommitRecord,
-        ) {
+        fn commit_applied(&self, token: cheime_model::CommitToken, record: CommitRecord) {
             self.staged.lock().unwrap().push((token, record));
         }
 

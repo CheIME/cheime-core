@@ -1,9 +1,9 @@
 #![forbid(unsafe_code)]
 
 use cheime_model::{
-    CORE_PROTOCOL_VERSION, CandidateSnapshot, ClientInstanceId, CommitToken,
-    DeploymentGeneration, KeyEvent, PlatformAction, PlatformActionResult, Revision, Sequence,
-    SessionEpoch, SessionId, UiCommand,
+    CORE_PROTOCOL_VERSION, CandidateSnapshot, ClientInstanceId, CommitToken, DeploymentGeneration,
+    KeyEvent, PlatformAction, PlatformActionResult, Revision, Sequence, SessionEpoch, SessionId,
+    UiCommand,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

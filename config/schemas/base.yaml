@@ -18,6 +18,8 @@ engine:
   translators:
     - type: dict
       dictionary: rime_ice_base
+      enable_completion: true
+      enable_sentence: true
 
   filters:
     - type: uniquifier

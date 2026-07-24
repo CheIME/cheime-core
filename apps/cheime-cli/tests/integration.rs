@@ -31,7 +31,9 @@ fn run_json(keys: &[&str]) -> Vec<String> {
 }
 
 fn key_char(c: char) -> String {
-    format!(r#"{{"key":{{"Character":"{c}"}},"state":{{"shift":false,"control":false,"alt":false}}}}"#)
+    format!(
+        r#"{{"key":{{"Character":"{c}"}},"state":{{"shift":false,"control":false,"alt":false}}}}"#
+    )
 }
 
 #[test]
@@ -41,14 +43,21 @@ fn nihao_produces_ni_hao_candidates() {
     let lines = run_json(&keys_refs);
 
     // Find the last CandidateSnapshot
-    let last_snapshot = lines.iter()
+    let last_snapshot = lines
+        .iter()
         .filter(|l| l.contains("CandidateSnapshot"))
         .last()
         .expect("no CandidateSnapshot found");
 
     // It must contain 你好 and 拟好
-    assert!(last_snapshot.contains("你好"), "snapshot missing 你好: {last_snapshot}");
-    assert!(last_snapshot.contains("拟好"), "snapshot missing 拟好: {last_snapshot}");
+    assert!(
+        last_snapshot.contains("你好"),
+        "snapshot missing 你好: {last_snapshot}"
+    );
+    assert!(
+        last_snapshot.contains("拟好"),
+        "snapshot missing 拟好: {last_snapshot}"
+    );
 }
 
 #[test]
@@ -65,16 +74,22 @@ fn enter_commits_highlighted() {
 #[test]
 fn backspace_removes_last_char() {
     let keys = [
-        key_char('n'), key_char('i'), key_char('h'),
+        key_char('n'),
+        key_char('i'),
+        key_char('h'),
         r#"{"key":"Backspace","state":{"shift":false,"control":false,"alt":false}}"#.to_owned(),
     ];
     let keys_refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
     let lines = run_json(&keys_refs);
 
     // The last PlatformAction should have preedit "ni"
-    let last_set_preedit = lines.iter()
+    let last_set_preedit = lines
+        .iter()
         .filter(|l| l.contains("SetPreedit"))
         .last()
         .expect("no SetPreedit found");
-    assert!(last_set_preedit.contains(r#""text":"ni""#), "expected text 'ni': {last_set_preedit}");
+    assert!(
+        last_set_preedit.contains(r#""text":"ni""#),
+        "expected text 'ni': {last_set_preedit}"
+    );
 }

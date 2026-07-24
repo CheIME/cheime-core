@@ -42,7 +42,11 @@ impl Default for SystemClock {
 
 impl Clock for SystemClock {
     fn now_ms(&self) -> u64 {
-        self.origin.elapsed().as_millis().try_into().unwrap_or(u64::MAX)
+        self.origin
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX)
     }
 }
 
@@ -88,6 +92,9 @@ impl LearningService {
     }
 
     pub fn commit_applied(&self, token: CommitToken, record: CommitRecord) {
+        if record.lexemes.is_empty() {
+            return;
+        }
         let mut store = self.store.lock();
         if record.exact_phrase {
             store.apply(UserEvent::learn_word(
@@ -138,7 +145,10 @@ mod tests {
             text: String::from("旎皓"),
             canonical_code: String::from("ni hao"),
             schema: String::from("qp"),
-            lexemes: Vec::new(),
+            lexemes: vec![
+                SelectedLexeme::test("旎", "ni"),
+                SelectedLexeme::test("皓", "hao"),
+            ],
             exact_phrase: false,
         }
     }
@@ -166,6 +176,18 @@ mod tests {
         assert!(service.rollback_learning(token(1)));
         assert!(!service.rollback_learning(token(1)));
         clock.set(LEARNING_DELAY_MS);
+        service.confirm_expired();
+        assert!(store.lock().query("ni hao").is_empty());
+    }
+
+    #[test]
+    fn non_lexical_candidates_are_not_learned() {
+        let store = Arc::new(Mutex::new(UserStore::new("test")));
+        let clock = Arc::new(FakeClock::new(0));
+        let service = LearningService::new(store.clone(), clock);
+        let mut record = novel_record();
+        record.lexemes.clear();
+        service.commit_applied(token(1), record);
         service.confirm_expired();
         assert!(store.lock().query("ni hao").is_empty());
     }

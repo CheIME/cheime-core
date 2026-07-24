@@ -13,8 +13,8 @@
 //! - Sync = replay event stream on other devices
 //! - Diagnostics = inspect event history per-word
 
-use parking_lot::Mutex;
 use cheime_model::{ActionId, CommitToken, SessionEpoch, SessionId};
+use parking_lot::Mutex;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -536,9 +536,7 @@ impl UserStore {
         let mut expired: Vec<_> = self
             .pending
             .iter()
-            .filter_map(|(token, phrase)| {
-                (phrase.deadline_ms <= now_ms).then_some(*token)
-            })
+            .filter_map(|(token, phrase)| (phrase.deadline_ms <= now_ms).then_some(*token))
             .collect();
         expired.sort();
         for token in expired {
@@ -564,12 +562,16 @@ impl UserStore {
         };
         self.legacy_next_action += 1;
         self.legacy_last = Some(token);
-        self.stage_phrase(token, PendingPhrase {
-            text: text.to_owned(),
-            code: code.to_owned(),
-            schema: schema.to_owned(),
-            deadline_ms: u64::MAX,
-        }, u64::MAX);
+        self.stage_phrase(
+            token,
+            PendingPhrase {
+                text: text.to_owned(),
+                code: code.to_owned(),
+                schema: schema.to_owned(),
+                deadline_ms: u64::MAX,
+            },
+            u64::MAX,
+        );
     }
 
     /// User hit backspace quickly after a commit — this was a typo.
@@ -707,16 +709,8 @@ mod tests {
     #[test]
     fn concurrent_session_action_ids_do_not_collide() {
         let mut store = UserStore::new("test");
-        store.stage_phrase(
-            token_for_session(1, 1),
-            phrase("甲", "jia"),
-            10,
-        );
-        store.stage_phrase(
-            token_for_session(2, 1),
-            phrase("乙", "yi"),
-            10,
-        );
+        store.stage_phrase(token_for_session(1, 1), phrase("甲", "jia"), 10);
+        store.stage_phrase(token_for_session(2, 1), phrase("乙", "yi"), 10);
         store.confirm_expired(10);
         assert_eq!(store.query("jia")[0].text, "甲");
         assert_eq!(store.query("yi")[0].text, "乙");

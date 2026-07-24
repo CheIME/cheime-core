@@ -11,6 +11,7 @@ const MAX_CANDIDATES: usize = 100;
 const MAX_SYLLABLES_PER_LEXEME: usize = 8;
 const MAX_SEQUENCES_PER_START: usize = 1024;
 const PHRASE_BONUS: i64 = 1_000_000;
+const USER_LEXICON_BONUS: i64 = 10_000_000;
 
 pub trait Lexicon: Send + Sync {
     fn exact(&self, code: &str) -> Vec<LexiconEntry>;
@@ -101,6 +102,22 @@ impl DerefMut for ResolvedCandidate {
 
 pub struct Decoder {
     lexicons: Vec<Arc<dyn Lexicon>>,
+    options: DecoderOptions,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DecoderOptions {
+    pub enable_completion: bool,
+    pub enable_sentence: bool,
+}
+
+impl Default for DecoderOptions {
+    fn default() -> Self {
+        Self {
+            enable_completion: true,
+            enable_sentence: true,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -120,7 +137,11 @@ struct DecodePath {
 
 impl Decoder {
     pub fn new(lexicons: Vec<Arc<dyn Lexicon>>) -> Self {
-        Self { lexicons }
+        Self::with_options(lexicons, DecoderOptions::default())
+    }
+
+    pub fn with_options(lexicons: Vec<Arc<dyn Lexicon>>, options: DecoderOptions) -> Self {
+        Self { lexicons, options }
     }
 
     pub fn decode(&self, _input: &str, graph: &SegmentationGraph) -> Vec<ResolvedCandidate> {
@@ -141,6 +162,9 @@ impl Decoder {
             }
             let options = self.lexical_options(graph, start);
             for path in beams[start].clone() {
+                if !self.options.enable_sentence && !path.lexemes.is_empty() {
+                    continue;
+                }
                 for option in &options {
                     let lexeme = SelectedLexeme {
                         text: option.entry.text.clone(),
@@ -153,6 +177,9 @@ impl Decoder {
                     next.text.push_str(&lexeme.text);
                     next.completion |= option.entry.completion;
                     next.score = next.score.saturating_add(option.entry.weight);
+                    if option.entry.source.starts_with("user") {
+                        next.score = next.score.saturating_add(USER_LEXICON_BONUS);
+                    }
                     if option.entry.code.contains(' ') {
                         next.score = next.score.saturating_add(PHRASE_BONUS);
                     }
@@ -161,7 +188,12 @@ impl Decoder {
                 }
             }
         }
-        Self::prune_beam(&mut beams, graph.input_len(), &mut resolved, graph.input_len());
+        Self::prune_beam(
+            &mut beams,
+            graph.input_len(),
+            &mut resolved,
+            graph.input_len(),
+        );
 
         resolved.sort_by(|left, right| {
             right
@@ -276,6 +308,9 @@ impl Decoder {
             if !is_exact && !is_completion {
                 continue;
             }
+            if is_completion && !self.options.enable_completion {
+                continue;
+            }
             for lexicon in &self.lexicons {
                 let entries = if is_completion {
                     lexicon.prefix(&code, MAX_HOMOGRAPHS)
@@ -335,6 +370,10 @@ impl Decoder {
             if sequences.len() >= MAX_SEQUENCES_PER_START {
                 break;
             }
+            if edge.kind == SyllableKind::Raw && edge.raw == "'" {
+                Self::collect_sequences(graph, edge.span.end, current, sequences);
+                continue;
+            }
             if edge.kind == SyllableKind::Raw {
                 continue;
             }
@@ -351,8 +390,8 @@ impl Decoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::segmentor::PinyinSegmentor;
     use crate::Segmentor;
+    use crate::segmentor::PinyinSegmentor;
     use cheime_dictionary::{CompiledIndex, DictEntry};
     use cheime_model::DeploymentGeneration;
     use std::sync::Arc;
@@ -402,5 +441,69 @@ mod tests {
             .unwrap();
         assert!(!candidate.exact_phrase);
         assert_eq!(candidate.lexemes.len(), 2);
+    }
+
+    #[test]
+    fn completion_can_be_disabled() {
+        let index = Arc::new(CompiledIndex::build(
+            vec![DictEntry {
+                text: "你好".into(),
+                code: "ni hao".into(),
+                weight: Some(200),
+                stem: None,
+            }],
+            DeploymentGeneration::new(1),
+        ));
+        let decoder = Decoder::with_options(
+            vec![index],
+            DecoderOptions {
+                enable_completion: false,
+                enable_sentence: true,
+            },
+        );
+        let graph = PinyinSegmentor::new().segment("nih");
+        assert!(
+            decoder
+                .decode("nih", &graph)
+                .iter()
+                .all(|candidate| candidate.display.text != "你好")
+        );
+    }
+
+    #[test]
+    fn sentence_composition_can_be_disabled_without_hiding_exact_phrases() {
+        let decoder = decoder(&[("你好", "ni hao", 200), ("旎", "ni", 90), ("皓", "hao", 80)]);
+        let decoder = Decoder::with_options(
+            decoder.lexicons,
+            DecoderOptions {
+                enable_completion: true,
+                enable_sentence: false,
+            },
+        );
+        let graph = PinyinSegmentor::new().segment("nihao");
+        let results = decoder.decode("nihao", &graph);
+        assert!(
+            results
+                .iter()
+                .any(|candidate| candidate.display.text == "你好")
+        );
+        assert!(
+            results
+                .iter()
+                .all(|candidate| candidate.display.text != "旎皓")
+        );
+    }
+
+    #[test]
+    fn apostrophe_is_a_traversable_hard_syllable_boundary() {
+        let decoder = decoder(&[("西安", "xi an", 200)]);
+        let graph = PinyinSegmentor::new().segment("xi'an");
+        let candidate = decoder
+            .decode("xi'an", &graph)
+            .into_iter()
+            .find(|candidate| candidate.display.text == "西安")
+            .unwrap();
+        assert!(candidate.complete);
+        assert_eq!(candidate.canonical_code, "xi an");
     }
 }

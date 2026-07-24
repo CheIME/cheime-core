@@ -3,26 +3,41 @@
 //! Also includes a no-op PassthroughTranslator for when the segmentor
 //! cannot split the composition (e.g. non-pinyin input).
 
-use crate::{CodeSegment, Translator};
-use crate::decoder::{Decoder, Lexicon, ResolvedCandidate};
+use crate::decoder::{Decoder, DecoderOptions, Lexicon, ResolvedCandidate};
 use crate::segmentation::SegmentationGraph;
+use crate::{CodeSegment, Translator};
 use cheime_dictionary::{CompiledIndex, LexiconEntry};
 use cheime_model::Candidate;
 use std::sync::Arc;
 
 /// Translates segments by querying a compiled dictionary index.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct DictTranslator {
     name: String,
     index: Arc<CompiledIndex>,
+    lexicons: Vec<Arc<dyn Lexicon>>,
+    options: DecoderOptions,
 }
 
 impl DictTranslator {
     pub fn new(name: impl Into<String>, index: Arc<CompiledIndex>) -> Self {
+        let lexicon: Arc<dyn Lexicon> = index.clone();
         Self {
             name: name.into(),
             index,
+            lexicons: vec![lexicon],
+            options: DecoderOptions::default(),
         }
+    }
+
+    pub fn with_options(mut self, options: DecoderOptions) -> Self {
+        self.options = options;
+        self
+    }
+
+    pub fn with_user_store(mut self, store: Arc<PLMutex<UserStore>>) -> Self {
+        self.lexicons.insert(0, Arc::new(UserLexicon { store }));
+        self
     }
 }
 
@@ -52,8 +67,7 @@ impl Translator for DictTranslator {
     }
 
     fn translate_graph(&self, graph: &SegmentationGraph) -> Vec<ResolvedCandidate> {
-        let lexicon: Arc<dyn Lexicon> = self.index.clone();
-        Decoder::new(vec![lexicon]).decode("", graph)
+        Decoder::with_options(self.lexicons.clone(), self.options).decode("", graph)
     }
 }
 
@@ -199,8 +213,8 @@ impl Translator for UserDictTranslator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::segmentor::PinyinSegmentor;
     use crate::Segmentor;
+    use crate::segmentor::PinyinSegmentor;
     use cheime_dictionary::{CompiledIndex, DictEntry};
     use cheime_model::DeploymentGeneration;
     use std::sync::Arc;

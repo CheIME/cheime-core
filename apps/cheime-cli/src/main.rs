@@ -5,10 +5,10 @@
 //!   cargo run -p cheime-cli               # interactive mode (default)
 //!   cargo run -p cheime-cli -- --json     # JSON I/O mode (stdin/stdout)
 
-use cheime_dictionary::{parse_body, CompiledIndex, DictColumn};
+use cheime_dictionary::{CompiledIndex, DictColumn, parse_body};
 use cheime_model::{
-    CORE_PROTOCOL_VERSION, ClientInstanceId, DeploymentGeneration, Key, KeyEvent,
-    KeyState, PlatformActionKind, Revision, Sequence, SessionEpoch, SessionId,
+    CORE_PROTOCOL_VERSION, ClientInstanceId, DeploymentGeneration, Key, KeyEvent, KeyState,
+    PlatformActionKind, Revision, Sequence, SessionEpoch, SessionId,
 };
 use cheime_pipeline::factory::PipelineFactory;
 use cheime_protocol::{EngineMessage, FrontendMessage, MessageHeader};
@@ -24,19 +24,25 @@ fn main() {
     let json_mode = args.iter().any(|a| a == "--json");
 
     let db_path = data_dir().join("cheime_cli_user.db");
-    let user_store = UserStore::open("cli-device", &db_path)
-        .unwrap_or_else(|_| UserStore::new("cli-device"));
+    let user_store =
+        UserStore::open("cli-device", &db_path).unwrap_or_else(|_| UserStore::new("cli-device"));
     let store = Arc::new(Mutex::new(user_store));
 
-    let config: cheime_config::schema::SchemaConfig =
-        serde_yaml::from_str("schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n").unwrap();
+    let config: cheime_config::schema::SchemaConfig = serde_yaml::from_str(
+        "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n",
+    )
+    .unwrap();
     let dict_index = load_dict();
-    let pipeline = PipelineFactory::build(&config, Some(store.clone()), Some(dict_index), None).unwrap();
+    let pipeline =
+        PipelineFactory::build(&config, Some(store.clone()), Some(dict_index), None).unwrap();
 
     let header = MessageHeader {
-        protocol_version: CORE_PROTOCOL_VERSION, client: ClientInstanceId::new(1),
-        session: SessionId::new(1), epoch: SessionEpoch::new(1),
-        sequence: Sequence::new(0), revision: Revision::new(0),
+        protocol_version: CORE_PROTOCOL_VERSION,
+        client: ClientInstanceId::new(1),
+        session: SessionId::new(1),
+        epoch: SessionEpoch::new(1),
+        sequence: Sequence::new(0),
+        revision: Revision::new(0),
         deployment: DeploymentGeneration::new(1),
     };
 
@@ -51,7 +57,11 @@ fn main() {
 
 // ── Interactive mode ────────────────────────────────────────────────
 
-fn run_interactive(session: &mut Session<impl cheime_pipeline::InputPipeline>, store: Arc<Mutex<UserStore>>, db_path: &PathBuf) {
+fn run_interactive(
+    session: &mut Session<impl cheime_pipeline::InputPipeline>,
+    store: Arc<Mutex<UserStore>>,
+    db_path: &PathBuf,
+) {
     println!("CheIME CLI — 雾凇词库 + 智能学习");
     println!("DB: {}\n", db_path.display());
     let mut seq: u64 = 0;
@@ -59,9 +69,13 @@ fn run_interactive(session: &mut Session<impl cheime_pipeline::InputPipeline>, s
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
         for ch in line.chars() {
-            if ch == '\x1b' { return; }
+            if ch == '\x1b' {
+                return;
+            }
             seq += 1;
             let key = match ch {
                 '\x08' | '\x7f' => Key::Backspace,
@@ -83,9 +97,15 @@ fn handle_output_interactive(output: &[EngineMessage], store: &Arc<Mutex<UserSto
         match m {
             EngineMessage::CandidateSnapshot { snapshot, .. } => {
                 print!("\r\x1b[K");
-                if !snapshot.preedit.is_empty() { print!("{} ", snapshot.preedit); }
+                if !snapshot.preedit.is_empty() {
+                    print!("{} ", snapshot.preedit);
+                }
                 for (i, c) in snapshot.candidates.iter().enumerate() {
-                    let mark = if Some(c.id) == snapshot.highlighted { ">" } else { " " };
+                    let mark = if Some(c.id) == snapshot.highlighted {
+                        ">"
+                    } else {
+                        " "
+                    };
                     print!("{}{}.{} ", mark, i + 1, c.text);
                 }
                 io::stdout().flush().ok();
@@ -103,7 +123,11 @@ fn handle_output_interactive(output: &[EngineMessage], store: &Arc<Mutex<UserSto
 
 // ── JSON I/O mode ───────────────────────────────────────────────────
 
-fn run_json(session: &mut Session<impl cheime_pipeline::InputPipeline>, store: Arc<Mutex<UserStore>>, db_path: &PathBuf) {
+fn run_json(
+    session: &mut Session<impl cheime_pipeline::InputPipeline>,
+    store: Arc<Mutex<UserStore>>,
+    db_path: &PathBuf,
+) {
     eprintln!("[cheime] JSON mode — {} entries loaded", 539071);
     eprintln!("[cheime] DB: {}", db_path.display());
     let mut seq: u64 = 0;
@@ -111,7 +135,9 @@ fn run_json(session: &mut Session<impl cheime_pipeline::InputPipeline>, store: A
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };
         let trimmed = line.trim();
-        if trimmed.is_empty() { continue; }
+        if trimmed.is_empty() {
+            continue;
+        }
 
         seq += 1;
         let key = match serde_json::from_str::<KeyEvent>(trimmed) {
@@ -123,9 +149,12 @@ fn run_json(session: &mut Session<impl cheime_pipeline::InputPipeline>, store: A
         };
         let msg = FrontendMessage::KeyCommand {
             header: MessageHeader {
-                protocol_version: CORE_PROTOCOL_VERSION, client: ClientInstanceId::new(1),
-                session: SessionId::new(1), epoch: SessionEpoch::new(1),
-                sequence: Sequence::new(seq), revision: Revision::new(0),
+                protocol_version: CORE_PROTOCOL_VERSION,
+                client: ClientInstanceId::new(1),
+                session: SessionId::new(1),
+                epoch: SessionEpoch::new(1),
+                sequence: Sequence::new(seq),
+                revision: Revision::new(0),
                 deployment: DeploymentGeneration::new(1),
             },
             event: key,
@@ -152,12 +181,18 @@ fn run_json(session: &mut Session<impl cheime_pipeline::InputPipeline>, store: A
 fn make_key_msg(seq: u64, key: Key) -> FrontendMessage {
     FrontendMessage::KeyCommand {
         header: MessageHeader {
-            protocol_version: CORE_PROTOCOL_VERSION, client: ClientInstanceId::new(1),
-            session: SessionId::new(1), epoch: SessionEpoch::new(1),
-            sequence: Sequence::new(seq), revision: Revision::new(0),
+            protocol_version: CORE_PROTOCOL_VERSION,
+            client: ClientInstanceId::new(1),
+            session: SessionId::new(1),
+            epoch: SessionEpoch::new(1),
+            sequence: Sequence::new(seq),
+            revision: Revision::new(0),
             deployment: DeploymentGeneration::new(1),
         },
-        event: KeyEvent { key, state: KeyState::default() },
+        event: KeyEvent {
+            key,
+            state: KeyState::default(),
+        },
     }
 }
 
