@@ -9,7 +9,8 @@ use cheime_config::schema::{EngineConfig, SchemaConfig, SegmentorConfig};
 use cheime_dictionary::{CompiledIndex, DictColumn, parse_body};
 use cheime_model::{DeploymentGeneration, Key, KeyEvent, KeyState};
 use cheime_pipeline::factory::PipelineFactory;
-use cheime_pipeline::{BuiltinPipeline, InputPipeline};
+use cheime_pipeline::segmentor::{PinyinCorrectionOptions, PinyinSegmentor};
+use cheime_pipeline::{BuiltinPipeline, InputPipeline, Segmentor};
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use std::sync::{Arc, OnceLock};
 
@@ -95,15 +96,19 @@ fn bench_typing_zhongguo(c: &mut Criterion) {
 // ── Real rime_ice pipeline (539K entries) ────────────────────────────
 
 static RIME_ICE_PIPELINE: OnceLock<Arc<dyn InputPipeline>> = OnceLock::new();
+static RIME_ICE_CORRECTION_PIPELINE: OnceLock<Arc<dyn InputPipeline>> = OnceLock::new();
+
+fn dictionary_body(raw: &str) -> &str {
+    raw.find("\n...\r\n")
+        .map(|position| &raw[position + 6..])
+        .or_else(|| raw.find("\n...\n").map(|position| &raw[position + 5..]))
+        .unwrap_or(raw)
+}
 
 fn rime_ice_pipeline() -> &'static Arc<dyn InputPipeline> {
     RIME_ICE_PIPELINE.get_or_init(|| {
         let raw = include_str!("../../../data/dicts/rime_ice_base.dict.yaml");
-        let body = if let Some(p) = raw.find("\n...\n") {
-            &raw[p + 5..]
-        } else {
-            raw
-        };
+        let body = dictionary_body(raw);
         let cols = &[DictColumn::Text, DictColumn::Code, DictColumn::Weight];
         let entries = parse_body(body, cols).expect("failed to parse rime_ice body");
         eprintln!("rime_ice pipeline: {} entries loaded", entries.len());
@@ -121,6 +126,27 @@ fn rime_ice_pipeline() -> &'static Arc<dyn InputPipeline> {
         let pipeline = PipelineFactory::build(&config, None, Some(idx), None)
             .expect("failed to build rime_ice pipeline");
         Arc::new(pipeline)
+    })
+}
+
+fn rime_ice_correction_pipeline() -> &'static Arc<dyn InputPipeline> {
+    RIME_ICE_CORRECTION_PIPELINE.get_or_init(|| {
+        let raw = include_str!("../../../data/dicts/rime_ice_base.dict.yaml");
+        let body = dictionary_body(raw);
+        let columns = &[DictColumn::Text, DictColumn::Code, DictColumn::Weight];
+        let entries = parse_body(body, columns).expect("failed to parse rime_ice body");
+        let index = Arc::new(CompiledIndex::build(
+            entries,
+            DeploymentGeneration::new(1),
+        ));
+        let config: SchemaConfig = serde_yaml::from_str(
+            "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  pinyin_correction:\n    enabled: true\n",
+        )
+        .expect("valid correction benchmark config");
+        Arc::new(
+            PipelineFactory::build(&config, None, Some(index), None)
+                .expect("failed to build correction pipeline"),
+        )
     })
 }
 
@@ -230,6 +256,30 @@ fn bench_real_decoder_inputs(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_real_correction_inputs(c: &mut Criterion) {
+    let pipeline = rime_ice_correction_pipeline();
+    let mut group = c.benchmark_group("pipeline/real_correction");
+    for input in ["nihao", "shenem"] {
+        group.bench_with_input(input, input, |b, input| {
+            b.iter(|| {
+                let candidates = pipeline.refresh(black_box(input)).unwrap();
+                black_box(candidates.len())
+            })
+        });
+    }
+    group.finish();
+}
+
+fn bench_correction_segmentation(c: &mut Criterion) {
+    let segmentor = PinyinSegmentor::new().with_correction(PinyinCorrectionOptions {
+        enabled: true,
+        ..Default::default()
+    });
+    c.bench_function("pipeline/correction_segment/shenem", |b| {
+        b.iter(|| segmentor.segment(black_box("shenem")))
+    });
+}
+
 // ── Criterion groups ─────────────────────────────────────────────────
 
 criterion_group!(
@@ -246,6 +296,8 @@ criterion_group!(
     bench_real_typing_zhonghuarenmingongheguo,
     bench_real_concurrent_lookups,
     bench_real_decoder_inputs,
+    bench_real_correction_inputs,
+    bench_correction_segmentation,
 );
 
 criterion_main!(tiny, real);

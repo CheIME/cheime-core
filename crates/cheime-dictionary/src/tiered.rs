@@ -118,6 +118,23 @@ impl TieredIndex {
             .collect()
     }
 
+    /// Whether at least one dictionary code starts with `prefix`.
+    pub fn has_code_prefix(&self, prefix: &str) -> bool {
+        let start = self.hot.partition_point(|(code, _)| code.as_str() < prefix);
+        self.hot
+            .get(start)
+            .is_some_and(|(code, _)| code.starts_with(prefix))
+    }
+
+    pub fn has_longer_code(&self, code: &str) -> bool {
+        let start = self
+            .hot
+            .partition_point(|(candidate, _)| candidate.as_str() <= code);
+        self.hot.get(start).is_some_and(|(candidate, _)| {
+            candidate.starts_with(code) && candidate.as_bytes().get(code.len()) == Some(&b' ')
+        })
+    }
+
     /// Prefix search: top `limit` entries across all codes matching `prefix`.
     pub fn lookup_prefix(&self, prefix: &str, limit: usize) -> Vec<LexiconEntry> {
         let start = self.hot.partition_point(|(c, _)| c.as_str() < prefix);

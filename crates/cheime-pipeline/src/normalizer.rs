@@ -8,6 +8,9 @@ use crate::CodeSegment;
 use crate::segmentation::{SegmentationGraph, SyllableEdge};
 use std::collections::HashMap;
 
+const NORMALIZATION_VARIANT_PENALTY: i64 = 100_000;
+const ABBREVIATION_PENALTY: i64 = 750_000;
+
 /// Expands a code segment into variant spellings.
 /// Each variant is then translated independently by downstream translators.
 pub trait CodeNormalizer: Send + Sync {
@@ -28,12 +31,23 @@ pub trait CodeNormalizer: Send + Sync {
                 tag: String::from("pinyin"),
             };
             for variant in self.normalize(&segment) {
-                normalized.add_edge(SyllableEdge {
-                    span: edge.span,
-                    raw: edge.raw.clone(),
-                    canonical: variant.code,
-                    kind: edge.kind,
-                });
+                let variant_cost =
+                    graph
+                        .edge_cost(edge)
+                        .saturating_add(if variant.code == edge.canonical {
+                            0
+                        } else {
+                            NORMALIZATION_VARIANT_PENALTY
+                        });
+                normalized.add_edge_with_cost(
+                    SyllableEdge {
+                        span: edge.span,
+                        raw: edge.raw.clone(),
+                        canonical: variant.code,
+                        kind: edge.kind,
+                    },
+                    variant_cost,
+                );
             }
         }
         normalized.finish();
@@ -244,6 +258,14 @@ impl CodeNormalizer for AbbreviationNormalizer {
     }
 
     fn normalize_graph(&self, graph: &SegmentationGraph) -> SegmentationGraph {
+        // Abbreviation is a fallback for input that cannot be covered by full
+        // pinyin. Injecting initial expansions into an already valid path makes
+        // `zhen` compete with `zhe + n` and multiplies decoder work for every
+        // ordinary composition.
+        if graph.has_complete_path() {
+            return graph.clone();
+        }
+
         let mut normalized = graph.clone();
         for edge in graph.edges() {
             if edge.raw.len() != 1 || !edge.raw.as_bytes()[0].is_ascii_lowercase() {
@@ -254,12 +276,15 @@ impl CodeNormalizer for AbbreviationNormalizer {
                 continue;
             };
             for canonical in expansions {
-                normalized.add_edge(SyllableEdge {
-                    span: edge.span,
-                    raw: edge.raw.clone(),
-                    canonical: canonical.clone(),
-                    kind: crate::segmentation::SyllableKind::Complete,
-                });
+                normalized.add_edge_with_cost(
+                    SyllableEdge {
+                        span: edge.span,
+                        raw: edge.raw.clone(),
+                        canonical: canonical.clone(),
+                        kind: crate::segmentation::SyllableKind::Complete,
+                    },
+                    graph.edge_cost(edge).saturating_add(ABBREVIATION_PENALTY),
+                );
             }
         }
         normalized.finish();
@@ -315,7 +340,9 @@ impl CodeNormalizer for CompositeNormalizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Segmentor;
     use crate::segmentation::{InputSpan, SegmentationGraph, SyllableEdge, SyllableKind};
+    use crate::segmentor::PinyinSegmentor;
 
     #[test]
     fn graph_normalization_preserves_span_and_kind() {
@@ -385,6 +412,24 @@ mod tests {
             variants[0].code.len() > 1,
             "first variant should be expanded syllable"
         );
+    }
+
+    #[test]
+    fn abbreviation_graph_is_only_added_when_full_pinyin_cannot_cover_input() {
+        let normalizer = AbbreviationNormalizer::new();
+
+        let full = PinyinSegmentor::new().segment("zhen");
+        assert!(full.has_complete_path());
+        assert_eq!(normalizer.normalize_graph(&full), full);
+
+        let abbreviated = PinyinSegmentor::new().segment("nhao");
+        assert!(!abbreviated.has_complete_path());
+        let normalized = normalizer.normalize_graph(&abbreviated);
+        assert!(normalized.edges_from(0).iter().any(|edge| {
+            edge.span == InputSpan::new(0, 1)
+                && edge.canonical == "ni"
+                && normalized.edge_cost(edge) > 0
+        }));
     }
 
     #[test]

@@ -80,3 +80,48 @@ fn empty_query_returns_empty() {
     assert!(idx.query("nonexistent").is_empty());
     assert!(idx.query_prefix("x", 10).is_empty());
 }
+
+#[test]
+fn exact_limit_counts_unique_texts_across_merged_sources() {
+    let entries = vec![
+        entry("真", "zhen", 300),
+        entry("真", "zhen", 300),
+        entry("阵", "zhen", 200),
+        entry("阵", "zhen", 200),
+        entry("震", "zhen", 100),
+    ];
+    let idx = CompiledIndex::build(entries, DeploymentGeneration::new(1));
+
+    let candidates = idx.lookup_exact_limited("zhen", 3);
+    let texts: Vec<_> = candidates.iter().map(|entry| entry.text.as_str()).collect();
+    assert_eq!(texts, ["真", "阵", "震"]);
+}
+
+#[test]
+fn longer_code_requires_a_syllable_boundary() {
+    let entries = vec![
+        entry("你", "ni", 100),
+        entry("你好", "ni hao", 200),
+        entry("泥泞", "ning", 50),
+    ];
+    let idx = CompiledIndex::build(entries, DeploymentGeneration::new(1));
+
+    assert!(idx.has_longer_code("ni"));
+    assert!(!idx.has_longer_code("nin"));
+    assert!(!idx.has_longer_code("ni hao"));
+}
+
+#[test]
+fn bounded_prefix_search_retains_the_global_top_k() {
+    let entries = vec![
+        entry("低一", "na", 1),
+        entry("最高", "nan", 100),
+        entry("低二", "nang", 2),
+        entry("次高", "nao", 90),
+    ];
+    let idx = CompiledIndex::build(entries, DeploymentGeneration::new(1));
+
+    let candidates = idx.lookup_prefix("n", 2);
+    let texts: Vec<_> = candidates.iter().map(|entry| entry.text.as_str()).collect();
+    assert_eq!(texts, ["最高", "次高"]);
+}

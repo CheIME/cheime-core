@@ -4,6 +4,7 @@
 //! cannot split the composition (e.g. non-pinyin input).
 
 use crate::decoder::{Decoder, DecoderOptions, Lexicon, ResolvedCandidate};
+use crate::language_model::{LanguageModel, NullLanguageModel};
 use crate::segmentation::SegmentationGraph;
 use crate::{CodeSegment, Translator};
 use cheime_dictionary::{CompiledIndex, LexiconEntry};
@@ -17,6 +18,7 @@ pub struct DictTranslator {
     index: Arc<CompiledIndex>,
     lexicons: Vec<Arc<dyn Lexicon>>,
     options: DecoderOptions,
+    language_model: Arc<dyn LanguageModel>,
 }
 
 impl DictTranslator {
@@ -27,6 +29,7 @@ impl DictTranslator {
             index,
             lexicons: vec![lexicon],
             options: DecoderOptions::default(),
+            language_model: Arc::new(NullLanguageModel),
         }
     }
 
@@ -37,6 +40,11 @@ impl DictTranslator {
 
     pub fn with_user_store(mut self, store: Arc<PLMutex<UserStore>>) -> Self {
         self.lexicons.insert(0, Arc::new(UserLexicon { store }));
+        self
+    }
+
+    pub fn with_language_model(mut self, language_model: Arc<dyn LanguageModel>) -> Self {
+        self.language_model = language_model;
         self
     }
 }
@@ -129,7 +137,9 @@ impl Translator for DictTranslator {
     }
 
     fn translate_graph(&self, graph: &SegmentationGraph) -> Vec<ResolvedCandidate> {
-        Decoder::with_options(self.lexicons.clone(), self.options).decode("", graph)
+        Decoder::with_options(self.lexicons.clone(), self.options)
+            .with_language_model(Arc::clone(&self.language_model))
+            .decode("", graph)
     }
 }
 
@@ -167,10 +177,29 @@ impl Translator for PassthroughTranslator {
 use cheime_user_data::UserStore;
 use parking_lot::Mutex as PLMutex;
 
+// A learned word must earn its position gradually. Giving every user entry a
+// fixed "always first" bonus makes a single accidental selection permanently
+// outrank high-frequency dictionary words.
+const USER_LEARNED_WEIGHT_PER_USE: i64 = 200_000;
+const USER_LEARNED_SOURCE: &str = "user:learned";
+const USER_PINNED_SOURCE: &str = "user:pinned";
+
+fn user_candidate_source(pinned: bool) -> String {
+    String::from(if pinned {
+        USER_PINNED_SOURCE
+    } else {
+        USER_LEARNED_SOURCE
+    })
+}
+
+fn user_candidate_weight(frequency: i64) -> i64 {
+    frequency.max(0).saturating_mul(USER_LEARNED_WEIGHT_PER_USE)
+}
+
 /// Translates segments by querying the user's learned words.
-#[derive(Debug)]
 pub struct UserDictTranslator {
     store: Arc<PLMutex<UserStore>>,
+    language_model: Arc<dyn LanguageModel>,
 }
 
 #[derive(Debug)]
@@ -188,6 +217,20 @@ impl Lexicon for UserLexicon {
         entries.truncate(limit);
         entries
     }
+
+    fn exact_limited(&self, code: &str, limit: usize) -> Vec<LexiconEntry> {
+        let mut entries = self.entries(self.store.lock().query(code), false);
+        entries.truncate(limit);
+        entries
+    }
+
+    fn has_prefix(&self, prefix: &str) -> bool {
+        self.store.lock().has_code_prefix(prefix)
+    }
+
+    fn has_longer(&self, code: &str) -> bool {
+        self.store.lock().has_longer_code(code)
+    }
 }
 
 impl UserLexicon {
@@ -201,8 +244,8 @@ impl UserLexicon {
             .map(|candidate| LexiconEntry {
                 text: candidate.text,
                 code: candidate.code,
-                weight: candidate.frequency,
-                source: String::from("user_dict"),
+                weight: user_candidate_weight(candidate.frequency),
+                source: user_candidate_source(candidate.pinned),
                 completion,
             })
             .collect()
@@ -211,7 +254,15 @@ impl UserLexicon {
 
 impl UserDictTranslator {
     pub fn new(store: Arc<PLMutex<UserStore>>) -> Self {
-        Self { store }
+        Self {
+            store,
+            language_model: Arc::new(NullLanguageModel),
+        }
+    }
+
+    pub fn with_language_model(mut self, language_model: Arc<dyn LanguageModel>) -> Self {
+        self.language_model = language_model;
+        self
     }
 }
 
@@ -234,7 +285,7 @@ impl Translator for UserDictTranslator {
                 id: cheime_model::CandidateId::new(3_000_000 + i as u64),
                 text: uc.text,
                 annotation: Some(format!("{}×{}", code, uc.frequency)),
-                source: String::from("user_dict"),
+                source: user_candidate_source(uc.pinned),
                 is_emoji: false,
             })
             .collect()
@@ -268,7 +319,9 @@ impl Translator for UserDictTranslator {
         let lexicon: Arc<dyn Lexicon> = Arc::new(UserLexicon {
             store: Arc::clone(&self.store),
         });
-        Decoder::new(vec![lexicon]).decode("", graph)
+        Decoder::new(vec![lexicon])
+            .with_language_model(Arc::clone(&self.language_model))
+            .decode("", graph)
     }
 }
 

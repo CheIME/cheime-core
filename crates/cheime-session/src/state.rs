@@ -593,16 +593,29 @@ mod tests {
                     completion: false,
                     score: 90,
                 }],
-                "hao" => vec![ResolvedCandidate {
-                    display: cheime_model::Candidate::text(CandidateId::new(1), "皓", "test"),
-                    consumed: InputSpan::new(0, 3),
-                    canonical_code: String::from("hao"),
-                    lexemes: vec![SelectedLexeme::test("皓", "hao")],
-                    complete: true,
-                    exact_phrase: true,
-                    completion: false,
-                    score: 80,
-                }],
+                "hao" => (1..=12)
+                    .map(|id| {
+                        let text = if id == 1 {
+                            String::from("皓")
+                        } else {
+                            format!("候选{id}")
+                        };
+                        ResolvedCandidate {
+                            display: cheime_model::Candidate::text(
+                                CandidateId::new(id),
+                                &text,
+                                "test",
+                            ),
+                            consumed: InputSpan::new(0, 3),
+                            canonical_code: String::from("hao"),
+                            lexemes: vec![SelectedLexeme::test(&text, "hao")],
+                            complete: true,
+                            exact_phrase: true,
+                            completion: false,
+                            score: 81 - id as i64,
+                        }
+                    })
+                    .collect(),
                 _ => Vec::new(),
             }
         }
@@ -730,6 +743,39 @@ mod tests {
         )));
         assert_eq!(session.composition_text(), "旎hao");
         assert_eq!(session.active_input(), "hao");
+    }
+
+    #[test]
+    fn paging_still_works_after_selecting_a_prefix_segment() {
+        let mut session = Session::new(initial_header(), PartialPipeline);
+        let (sequence, revision) = type_text(&mut session, "nihao", 1, 0);
+        session
+            .handle(ui_message(
+                sequence,
+                revision,
+                UiCommand::SelectCandidate {
+                    epoch: SessionEpoch::new(3),
+                    snapshot_revision: Revision::new(revision),
+                    candidate_id: CandidateId::new(1),
+                },
+            ))
+            .unwrap();
+
+        let output = session
+            .handle(ui_message(sequence + 1, revision + 1, UiCommand::NextPage))
+            .unwrap();
+        let snapshot = output
+            .iter()
+            .find_map(|message| match message {
+                EngineMessage::CandidateSnapshot { snapshot, .. } => Some(snapshot),
+                _ => None,
+            })
+            .expect("paging should publish a candidate snapshot");
+
+        assert_eq!(session.active_input(), "hao");
+        assert_eq!(snapshot.preedit, "旎hao");
+        assert_eq!(snapshot.page, 1);
+        assert_eq!(snapshot.candidates.len(), 3);
     }
 
     #[test]

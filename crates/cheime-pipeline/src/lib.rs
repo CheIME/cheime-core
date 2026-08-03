@@ -4,9 +4,11 @@
 mod builtin;
 pub mod decoder;
 pub mod emoji;
+pub mod evaluation;
 pub mod factory;
 pub mod filter;
 pub mod key_mapper;
+pub mod language_model;
 pub mod learning;
 pub mod normalizer;
 pub mod processor;

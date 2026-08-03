@@ -608,6 +608,18 @@ impl UserStore {
         self.query_matching(|stored| stored.starts_with(prefix))
     }
 
+    pub fn has_code_prefix(&self, prefix: &str) -> bool {
+        self.code_texts
+            .keys()
+            .any(|(_, stored)| stored.starts_with(prefix))
+    }
+
+    pub fn has_longer_code(&self, code: &str) -> bool {
+        self.code_texts.keys().any(|(_, stored)| {
+            stored.starts_with(code) && stored.as_bytes().get(code.len()) == Some(&b' ')
+        })
+    }
+
     fn query_matching(&self, matches: impl Fn(&str) -> bool) -> Vec<UserCandidate> {
         let mut cs = Vec::new();
         let mut seen = HashSet::new();

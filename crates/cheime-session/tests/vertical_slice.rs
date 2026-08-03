@@ -232,6 +232,6 @@ fn constructed_phrase_is_learned_after_delayed_confirmation() {
         revision = fresh_snapshot.as_ref().unwrap().revision.get();
     }
     assert!(fresh_snapshot.unwrap().candidates.iter().any(|candidate| {
-        candidate.text == "旎皓" && candidate.source.starts_with("user_dict")
+        candidate.text == "旎皓" && candidate.source.starts_with("user:learned")
     }));
 }

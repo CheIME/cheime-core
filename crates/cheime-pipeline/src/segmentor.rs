@@ -5,6 +5,9 @@
 use crate::Segmentor;
 use crate::segmentation::{InputSpan, SegmentationGraph, SyllableEdge, SyllableKind};
 
+const MAX_SUPPORTED_EDIT_DISTANCE: u8 = 2;
+const MAX_CORRECTION_TOKEN_BYTES: usize = 8;
+
 /// All valid Hanyu Pinyin syllables (without tones).
 pub(crate) const PINYIN_SYLLABLES: &[&str] = &[
     "a", "ai", "an", "ang", "ao", "ba", "bai", "ban", "bang", "bao", "bei", "ben", "beng", "bi",
@@ -118,12 +121,126 @@ impl Trie {
 #[derive(Clone, Debug)]
 pub struct PinyinSegmentor {
     trie: Trie,
+    correction: PinyinCorrectionOptions,
+}
+
+/// Bounded typo-correction expansion for the segmentation graph.
+///
+/// Correction is opt-in. Limits are normalized by the segmentor so malformed
+/// external configuration cannot create an unbounded graph.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PinyinCorrectionOptions {
+    pub enabled: bool,
+    pub max_edit_distance: u8,
+    pub max_candidates_per_start: usize,
+    pub edit_penalty: i64,
+}
+
+impl Default for PinyinCorrectionOptions {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_edit_distance: 1,
+            max_candidates_per_start: 16,
+            edit_penalty: 500_000,
+        }
+    }
+}
+
+impl PinyinCorrectionOptions {
+    fn normalized(self) -> Self {
+        Self {
+            enabled: self.enabled,
+            max_edit_distance: self.max_edit_distance.clamp(1, MAX_SUPPORTED_EDIT_DISTANCE),
+            max_candidates_per_start: self.max_candidates_per_start.min(64),
+            edit_penalty: self.edit_penalty.max(1),
+        }
+    }
 }
 
 impl PinyinSegmentor {
     pub fn new() -> Self {
         Self {
             trie: Trie::build(PINYIN_SYLLABLES),
+            correction: PinyinCorrectionOptions::default(),
+        }
+    }
+
+    pub fn with_correction(mut self, options: PinyinCorrectionOptions) -> Self {
+        self.correction = options.normalized();
+        self
+    }
+
+    fn append_correction_edges(&self, input: &str, start: usize, graph: &mut SegmentationGraph) {
+        if !self.correction.enabled || self.correction.max_candidates_per_start == 0 {
+            return;
+        }
+        let bytes = input.as_bytes();
+        if bytes
+            .get(start)
+            .is_none_or(|byte| !byte.is_ascii_lowercase())
+        {
+            return;
+        }
+
+        let contiguous_end = bytes[start..]
+            .iter()
+            .position(|byte| !byte.is_ascii_lowercase())
+            .map(|offset| start + offset)
+            .unwrap_or(bytes.len());
+        let available = contiguous_end - start;
+        let max_distance = usize::from(self.correction.max_edit_distance);
+        let mut candidates = Vec::<(i64, usize, &'static str)>::new();
+
+        for &canonical in PINYIN_SYLLABLES {
+            let shortest = canonical.len().saturating_sub(max_distance).max(2);
+            let longest = canonical
+                .len()
+                .saturating_add(max_distance)
+                .min(MAX_CORRECTION_TOKEN_BYTES)
+                .min(available);
+            if shortest > longest {
+                continue;
+            }
+            for consumed in shortest..=longest {
+                let raw = &input[start..start + consumed];
+                let Some(distance) = bounded_damerau_levenshtein(
+                    raw.as_bytes(),
+                    canonical.as_bytes(),
+                    self.correction.max_edit_distance,
+                ) else {
+                    continue;
+                };
+                if distance == 0 {
+                    continue;
+                }
+                let cost = self
+                    .correction
+                    .edit_penalty
+                    .saturating_mul(i64::from(distance));
+                candidates.push((cost, start + consumed, canonical));
+            }
+        }
+
+        candidates.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then_with(|| left.1.cmp(&right.1))
+                .then_with(|| left.2.cmp(right.2))
+        });
+        candidates.dedup_by(|left, right| left.1 == right.1 && left.2 == right.2);
+        candidates.truncate(self.correction.max_candidates_per_start);
+
+        for (cost, end, canonical) in candidates {
+            graph.add_edge_with_cost(
+                SyllableEdge {
+                    span: InputSpan::new(start, end),
+                    raw: input[start..end].to_owned(),
+                    canonical: canonical.to_owned(),
+                    kind: SyllableKind::Complete,
+                },
+                cost,
+            );
         }
     }
 }
@@ -139,10 +256,55 @@ impl Segmentor for PinyinSegmentor {
         let mut graph = SegmentationGraph::new(composition.len());
         for (start, _) in composition.char_indices() {
             self.trie.append_edges(composition, start, &mut graph);
+            self.append_correction_edges(composition, start, &mut graph);
         }
         graph.finish();
         graph
     }
+}
+
+/// Optimal-string-alignment distance with adjacent transpositions.
+///
+/// Pinyin syllables are at most six ASCII bytes, so a fixed matrix avoids heap
+/// allocation in the realtime path. Inputs outside the supported bound are
+/// rejected rather than resized.
+fn bounded_damerau_levenshtein(left: &[u8], right: &[u8], limit: u8) -> Option<u8> {
+    if left.len() > MAX_CORRECTION_TOKEN_BYTES || right.len() > MAX_CORRECTION_TOKEN_BYTES {
+        return None;
+    }
+    let length_gap = left.len().abs_diff(right.len());
+    if length_gap > usize::from(limit) {
+        return None;
+    }
+
+    let mut distance = [[0u8; MAX_CORRECTION_TOKEN_BYTES + 1]; MAX_CORRECTION_TOKEN_BYTES + 1];
+    for (index, row) in distance.iter_mut().enumerate().take(left.len() + 1) {
+        row[0] = index as u8;
+    }
+    for index in 0..=right.len() {
+        distance[0][index] = index as u8;
+    }
+
+    for left_index in 1..=left.len() {
+        for right_index in 1..=right.len() {
+            let substitution = u8::from(left[left_index - 1] != right[right_index - 1]);
+            let mut best = distance[left_index - 1][right_index]
+                .saturating_add(1)
+                .min(distance[left_index][right_index - 1].saturating_add(1))
+                .min(distance[left_index - 1][right_index - 1].saturating_add(substitution));
+            if left_index > 1
+                && right_index > 1
+                && left[left_index - 1] == right[right_index - 2]
+                && left[left_index - 2] == right[right_index - 1]
+            {
+                best = best.min(distance[left_index - 2][right_index - 2].saturating_add(1));
+            }
+            distance[left_index][right_index] = best;
+        }
+    }
+
+    let result = distance[left.len()][right.len()];
+    (result <= limit).then_some(result)
 }
 
 #[cfg(test)]
@@ -222,6 +384,64 @@ mod tests {
         let seg = PinyinSegmentor::new();
         let result = seg.segment("");
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn correction_is_disabled_by_default() {
+        let graph = PinyinSegmentor::new().segment("em");
+
+        assert!(
+            graph
+                .edges_from(0)
+                .iter()
+                .all(|edge| edge.canonical != "me")
+        );
+    }
+
+    #[test]
+    fn correction_adds_a_costed_transposition_edge() {
+        let graph = PinyinSegmentor::new()
+            .with_correction(PinyinCorrectionOptions {
+                enabled: true,
+                edit_penalty: 123,
+                ..Default::default()
+            })
+            .segment("em");
+        let edge = graph
+            .edges_from(0)
+            .iter()
+            .find(|edge| edge.span == InputSpan::new(0, 2) && edge.canonical == "me")
+            .expect("em should have a transposition edge to me");
+
+        assert_eq!(graph.edge_cost(edge), 123);
+    }
+
+    #[test]
+    fn correction_expansion_is_bounded_per_input_offset() {
+        let options = PinyinCorrectionOptions {
+            enabled: true,
+            max_edit_distance: 2,
+            max_candidates_per_start: 3,
+            ..Default::default()
+        };
+        let baseline = PinyinSegmentor::new().segment("zz");
+        let corrected = PinyinSegmentor::new()
+            .with_correction(options)
+            .segment("zz");
+
+        assert!(
+            corrected.edges_from(0).len() <= baseline.edges_from(0).len() + 3,
+            "correction edges must respect the per-offset cap"
+        );
+    }
+
+    #[test]
+    fn damerau_distance_supports_all_single_edit_types() {
+        assert_eq!(bounded_damerau_levenshtein(b"em", b"me", 1), Some(1));
+        assert_eq!(bounded_damerau_levenshtein(b"shn", b"shen", 1), Some(1));
+        assert_eq!(bounded_damerau_levenshtein(b"shenn", b"shen", 1), Some(1));
+        assert_eq!(bounded_damerau_levenshtein(b"shrn", b"shen", 1), Some(1));
+        assert_eq!(bounded_damerau_levenshtein(b"abc", b"shen", 1), None);
     }
 
     #[test]

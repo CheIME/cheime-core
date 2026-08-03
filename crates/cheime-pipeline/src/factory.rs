@@ -1,3 +1,4 @@
+use crate::language_model::{LanguageModel, NullLanguageModel};
 use crate::learning::LearningService;
 use crate::segmentation::{InputSpan, SegmentationGraph, SyllableEdge, SyllableKind};
 use crate::simplifier::{Conversion, SimplifierFilter};
@@ -43,18 +44,55 @@ impl PipelineFactory {
         Self::build_with_learning(config, learning, dict_index, key_mapper)
     }
 
+    /// Build a pipeline with an explicitly supplied language model.
+    ///
+    /// Existing callers should continue using [`Self::build`]; it installs a
+    /// zero-cost model and therefore preserves historical ranking.
+    pub fn build_with_language_model(
+        config: &SchemaConfig,
+        user_store: Option<Arc<Mutex<UserStore>>>,
+        dict_index: Option<Arc<CompiledIndex>>,
+        key_mapper: Option<Box<dyn crate::key_mapper::KeyMapper>>,
+        language_model: Arc<dyn LanguageModel>,
+    ) -> Result<ComposablePipeline, BuildError> {
+        let learning = user_store.map(LearningService::production).map(Arc::new);
+        Self::build_with_learning_and_language_model(
+            config,
+            learning,
+            dict_index,
+            key_mapper,
+            language_model,
+        )
+    }
+
     pub fn build_with_learning(
         config: &SchemaConfig,
         learning: Option<Arc<LearningService>>,
         dict_index: Option<Arc<CompiledIndex>>,
         key_mapper: Option<Box<dyn crate::key_mapper::KeyMapper>>,
     ) -> Result<ComposablePipeline, BuildError> {
+        Self::build_with_learning_and_language_model(
+            config,
+            learning,
+            dict_index,
+            key_mapper,
+            Arc::new(NullLanguageModel),
+        )
+    }
+
+    pub fn build_with_learning_and_language_model(
+        config: &SchemaConfig,
+        learning: Option<Arc<LearningService>>,
+        dict_index: Option<Arc<CompiledIndex>>,
+        key_mapper: Option<Box<dyn crate::key_mapper::KeyMapper>>,
+        language_model: Arc<dyn LanguageModel>,
+    ) -> Result<ComposablePipeline, BuildError> {
         let user_store = learning.as_ref().map(|service| service.store());
         let mut p = ComposablePipeline::new(
             Self::build_processor(config)?,
             Self::build_segmentor(&config.engine)?,
             Self::build_normalizer(&config.engine),
-            Self::build_translators(&config.engine, user_store, dict_index)?,
+            Self::build_translators(&config.engine, user_store, dict_index, language_model)?,
             Self::build_filters(&config.engine)?,
             Self::build_ranker(),
         )
@@ -85,7 +123,17 @@ impl PipelineFactory {
     fn build_segmentor(e: &EngineConfig) -> Result<Box<dyn Segmentor>, BuildError> {
         for s in &e.segmentors {
             if matches!(s, SegmentorConfig::PinyinSyllable) {
-                return Ok(Box::new(PinyinSegmentor::new()));
+                let mut segmentor = PinyinSegmentor::new();
+                if let Some(correction) = &e.pinyin_correction {
+                    segmentor =
+                        segmentor.with_correction(crate::segmentor::PinyinCorrectionOptions {
+                            enabled: correction.enabled,
+                            max_edit_distance: correction.max_edit_distance,
+                            max_candidates_per_start: correction.max_candidates_per_start,
+                            edit_penalty: correction.edit_penalty,
+                        });
+                }
+                return Ok(Box::new(segmentor));
             }
         }
         Ok(Box::new(PassthroughSegmentor))
@@ -117,7 +165,7 @@ impl PipelineFactory {
 
         match normalizers.len() {
             0 => None,
-            1 => Some(normalizers.into_iter().next().unwrap()),
+            1 => normalizers.pop(),
             _ => Some(Box::new(CompositeNormalizer::new(normalizers))),
         }
     }
@@ -126,6 +174,7 @@ impl PipelineFactory {
         e: &EngineConfig,
         user_store: Option<Arc<Mutex<UserStore>>>,
         dict_index: Option<Arc<CompiledIndex>>,
+        language_model: Arc<dyn LanguageModel>,
     ) -> Result<Vec<Box<dyn Translator>>, BuildError> {
         use cheime_config::schema::TranslatorConfig;
         let mut out: Vec<Box<dyn Translator>> = Vec::new();
@@ -139,7 +188,8 @@ impl PipelineFactory {
                             .with_options(crate::decoder::DecoderOptions {
                                 enable_completion: config.enable_completion,
                                 enable_sentence: config.enable_sentence,
-                            });
+                            })
+                            .with_language_model(Arc::clone(&language_model));
                         if let Some(store) = user_store.as_ref() {
                             translator = translator.with_user_store(Arc::clone(store));
                         }
@@ -153,7 +203,8 @@ impl PipelineFactory {
                             .with_options(crate::decoder::DecoderOptions {
                                 enable_completion: config.enable_completion,
                                 enable_sentence: config.enable_sentence,
-                            });
+                            })
+                            .with_language_model(Arc::clone(&language_model));
                         if let Some(store) = user_store.as_ref() {
                             translator = translator.with_user_store(Arc::clone(store));
                         }
@@ -176,7 +227,8 @@ impl PipelineFactory {
         // dictionary and emoji sources in addition to the user lexicon.
         if e.translators.is_empty() {
             if let Some(idx) = dict_index {
-                let mut translator = DictTranslator::new("main", idx);
+                let mut translator = DictTranslator::new("main", idx)
+                    .with_language_model(Arc::clone(&language_model));
                 if let Some(store) = user_store.as_ref() {
                     translator = translator.with_user_store(Arc::clone(store));
                 }
@@ -189,7 +241,13 @@ impl PipelineFactory {
         }
         if !has_dictionary {
             if let Some(store) = user_store {
-                out.insert(0, Box::new(UserDictTranslator::new(store)));
+                out.insert(
+                    0,
+                    Box::new(
+                        UserDictTranslator::new(store)
+                            .with_language_model(Arc::clone(&language_model)),
+                    ),
+                );
             }
         }
         if out.is_empty() {
@@ -385,7 +443,64 @@ mod tests {
             )
             .unwrap();
         assert_eq!(update.candidates[0].text, "旎");
-        assert_eq!(update.candidates[0].source, "user_dict");
+        assert_eq!(update.candidates[0].source, "user:learned");
+    }
+
+    #[test]
+    fn accidental_learning_does_not_override_common_dictionary_words() {
+        let mut store = UserStore::new("test");
+        store.apply(cheime_user_data::UserEvent::learn_word(
+            "test", "qp", "字级", "zi ji",
+        ));
+        store.apply(cheime_user_data::UserEvent::learn_word(
+            "test", "qp", "孑孓", "jie jue",
+        ));
+        store.apply(cheime_user_data::UserEvent::learn_word(
+            "test", "qp", "是的", "shi de",
+        ));
+        let index = Arc::new(CompiledIndex::build(
+            vec![
+                cheime_dictionary::DictEntry {
+                    text: String::from("自己"),
+                    code: String::from("zi ji"),
+                    weight: Some(507_135),
+                    stem: None,
+                },
+                cheime_dictionary::DictEntry {
+                    text: String::from("解决"),
+                    code: String::from("jie jue"),
+                    weight: Some(501_191),
+                    stem: None,
+                },
+                cheime_dictionary::DictEntry {
+                    text: String::from("是"),
+                    code: String::from("shi"),
+                    weight: Some(31_422_712),
+                    stem: None,
+                },
+            ],
+            cheime_model::DeploymentGeneration::new(1),
+        ));
+        let pipeline = PipelineFactory::build(
+            &conf(
+                "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  translators:\n    - type: dict\n      dictionary: main\n",
+            ),
+            Some(Arc::new(Mutex::new(store))),
+            Some(index),
+            None,
+        )
+        .unwrap();
+
+        let ziji = pipeline.refresh("ziji").unwrap();
+        let jiejue = pipeline.refresh("jiejue").unwrap();
+        let sh = pipeline.refresh("sh").unwrap();
+
+        assert_eq!(ziji[0].text, "自己");
+        assert!(ziji.iter().any(|candidate| candidate.text == "字级"));
+        assert_eq!(jiejue[0].text, "解决");
+        assert!(jiejue.iter().any(|candidate| candidate.text == "孑孓"));
+        assert_eq!(sh[0].text, "是");
+        assert!(sh.iter().any(|candidate| candidate.text == "是的"));
     }
 
     #[test]
@@ -419,7 +534,94 @@ mod tests {
             .find(|candidate| candidate.text == "旎皓")
             .expect("mixed user/static sentence");
         assert_eq!(composed.lexemes.len(), 2);
-        assert_eq!(composed.lexemes[0].source, "user_dict");
+        assert_eq!(composed.lexemes[0].source, "user:learned");
+    }
+
+    #[test]
+    fn injected_language_model_reaches_dictionary_decoder() {
+        use crate::language_model::BackoffNgramModel;
+
+        let index = Arc::new(CompiledIndex::build(
+            vec![
+                cheime_dictionary::DictEntry {
+                    text: String::from("甲"),
+                    code: String::from("ni"),
+                    weight: Some(100),
+                    stem: None,
+                },
+                cheime_dictionary::DictEntry {
+                    text: String::from("乙"),
+                    code: String::from("ni"),
+                    weight: Some(100),
+                    stem: None,
+                },
+                cheime_dictionary::DictEntry {
+                    text: String::from("丙"),
+                    code: String::from("hao"),
+                    weight: Some(100),
+                    stem: None,
+                },
+                cheime_dictionary::DictEntry {
+                    text: String::from("丁"),
+                    code: String::from("hao"),
+                    weight: Some(100),
+                    stem: None,
+                },
+            ],
+            cheime_model::DeploymentGeneration::new(1),
+        ));
+        let model = Arc::new(BackoffNgramModel::new(0).with_bigram("甲", "丁", 1_000));
+        let pipeline = PipelineFactory::build_with_language_model(
+            &conf("schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n"),
+            None,
+            Some(index),
+            None,
+            model,
+        )
+        .unwrap();
+
+        let candidates = pipeline.refresh("nihao").unwrap();
+        assert_eq!(candidates[0].display.text, "甲丁");
+    }
+
+    #[test]
+    fn configured_correction_decodes_typo_without_rewriting_composition() {
+        let index = Arc::new(CompiledIndex::build(
+            vec![cheime_dictionary::DictEntry {
+                text: String::from("什么"),
+                code: String::from("shen me"),
+                weight: Some(200),
+                stem: None,
+            }],
+            cheime_model::DeploymentGeneration::new(1),
+        ));
+        let pipeline = PipelineFactory::build(
+            &conf(
+                "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  pinyin_correction:\n    enabled: true\n    max_candidates_per_start: 64\n",
+            ),
+            None,
+            Some(index),
+            None,
+        )
+        .unwrap();
+
+        let update = pipeline
+            .apply(
+                "shene",
+                &KeyEvent {
+                    key: Key::Character('m'),
+                    state: Default::default(),
+                },
+            )
+            .unwrap();
+
+        assert_eq!(update.composition, "shenem");
+        assert!(
+            update
+                .candidates
+                .iter()
+                .any(|candidate| candidate.display.text == "什么")
+        );
     }
 
     fn rime_body(raw: &str) -> &str {

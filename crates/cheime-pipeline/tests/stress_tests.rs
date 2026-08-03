@@ -31,6 +31,19 @@ fn real_dict() -> &'static Arc<CompiledIndex> {
     })
 }
 
+fn single_character_dict() -> &'static Arc<CompiledIndex> {
+    static DICT: OnceLock<Arc<CompiledIndex>> = OnceLock::new();
+    DICT.get_or_init(|| {
+        let raw = include_str!("../../../data/dicts/8105.dict.yaml");
+        let entries = parse_body(
+            dict_body(raw),
+            &[DictColumn::Text, DictColumn::Code, DictColumn::Weight],
+        )
+        .unwrap();
+        Arc::new(CompiledIndex::build(entries, DeploymentGeneration::new(1)))
+    })
+}
+
 fn dict_body(raw: &str) -> &str {
     raw.find("\n...\r\n")
         .map(|start| &raw[start + 6..])
@@ -55,6 +68,32 @@ fn real_pipeline() -> impl InputPipeline {
         .unwrap(),
         None,
         Some(real_dict().clone()),
+        None,
+    )
+    .unwrap()
+}
+
+fn real_correction_pipeline() -> impl InputPipeline {
+    PipelineFactory::build(
+        &serde_yaml::from_str::<SchemaConfig>(
+            "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  pinyin_correction:\n    enabled: true\n",
+        )
+        .unwrap(),
+        None,
+        Some(real_dict().clone()),
+        None,
+    )
+    .unwrap()
+}
+
+fn single_character_pipeline() -> impl InputPipeline {
+    PipelineFactory::build(
+        &serde_yaml::from_str::<SchemaConfig>(
+            "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n",
+        )
+        .unwrap(),
+        None,
+        Some(single_character_dict().clone()),
         None,
     )
     .unwrap()
@@ -92,6 +131,17 @@ fn typing_zhongguo_produces_candidates() {
 }
 
 #[test]
+fn single_syllable_real_dictionary_has_a_second_candidate_page() {
+    let candidates = single_character_pipeline().refresh("hao").unwrap();
+
+    assert!(
+        candidates.len() > 9,
+        "single-syllable homographs should remain pageable, got {} candidates",
+        candidates.len()
+    );
+}
+
+#[test]
 fn typing_long_phrase_produces_candidates() {
     let p = real_pipeline();
     // Type zhonghuarenmin — a long pinyin phrase
@@ -123,6 +173,90 @@ fn typing_nihao_ranked_correctly() {
             assert!(texts.contains(&"拟好"), "nihao should have 拟好");
         }
     }
+}
+
+#[test]
+fn exact_zhen_precedes_consonant_abbreviation_compositions() {
+    let candidates = single_character_pipeline().refresh("zhen").unwrap();
+    let leading: Vec<_> = candidates
+        .iter()
+        .take(3)
+        .map(|candidate| candidate.display.text.as_str())
+        .collect();
+
+    assert_eq!(leading, ["真", "阵", "震"]);
+    assert!(
+        candidates
+            .iter()
+            .take(8)
+            .all(|candidate| candidate.canonical_code == "zhen"),
+        "exact zhen candidates should not be displaced by zhe + n: {:?}",
+        candidates
+            .iter()
+            .take(8)
+            .map(|candidate| (
+                candidate.display.text.as_str(),
+                candidate.canonical_code.as_str(),
+            ))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn correction_enabled_keeps_clean_top_candidate_stable() {
+    let baseline = real_pipeline().refresh("nihao").unwrap();
+    let corrected = real_correction_pipeline().refresh("nihao").unwrap();
+
+    assert!(!baseline.is_empty());
+    assert!(!corrected.is_empty());
+    assert_eq!(
+        corrected[0].display.text,
+        baseline[0].display.text,
+        "corrected top candidates: {:?}",
+        corrected
+            .iter()
+            .take(10)
+            .map(|candidate| (
+                candidate.display.text.as_str(),
+                candidate.canonical_code.as_str(),
+                candidate.score,
+            ))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(corrected[0].canonical_code, baseline[0].canonical_code);
+}
+
+#[test]
+fn correction_enabled_recovers_transposed_real_dictionary_phrase() {
+    let candidates = real_correction_pipeline().refresh("shenem").unwrap();
+
+    assert!(
+        candidates
+            .iter()
+            .any(|candidate| candidate.display.text == "\u{4ec0}\u{4e48}"),
+        "shenem should recover shen me; candidates: {:?}",
+        candidates
+            .iter()
+            .take(20)
+            .map(|candidate| (
+                candidate.display.text.as_str(),
+                candidate.canonical_code.as_str(),
+                candidate.score,
+            ))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn correction_enabled_keeps_valid_pinyin_typo_alternatives() {
+    let candidates = real_correction_pipeline().refresh("yisi").unwrap();
+
+    assert!(
+        candidates.iter().any(|candidate| {
+            candidate.display.text == "\u{610f}\u{8bc6}" && candidate.canonical_code == "yi shi"
+        }),
+        "valid input yi si should still allow the one-edit yi shi path"
+    );
 }
 
 #[test]

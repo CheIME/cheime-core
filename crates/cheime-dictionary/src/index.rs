@@ -3,7 +3,9 @@
 use crate::body::DictEntry;
 use cheime_model::{Candidate, CandidateId, DeploymentGeneration};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BinaryHeap, HashMap};
+use std::ops::Bound::{Excluded, Included, Unbounded};
 use std::sync::Arc;
 
 use crate::tiered::TieredIndex;
@@ -26,6 +28,28 @@ impl LexiconEntry {
             source: self.source,
             is_emoji: false,
         }
+    }
+}
+
+fn normalize_groups(entries: &mut BTreeMap<String, Vec<(String, Option<i64>)>>) {
+    for group in entries.values_mut() {
+        let mut unique = HashMap::<String, Option<i64>>::with_capacity(group.len());
+        for (text, weight) in std::mem::take(group) {
+            unique
+                .entry(text)
+                .and_modify(|existing| {
+                    if weight.unwrap_or(0) > existing.unwrap_or(0) {
+                        *existing = weight;
+                    }
+                })
+                .or_insert(weight);
+        }
+        *group = unique.into_iter().collect();
+        group.sort_by(|a, b| {
+            b.1.unwrap_or(0)
+                .cmp(&a.1.unwrap_or(0))
+                .then_with(|| a.0.cmp(&b.0))
+        });
     }
 }
 
@@ -62,13 +86,7 @@ impl MemoryIndex {
                 .push((entry.text.clone(), entry.weight));
         }
 
-        for group in grouped.values_mut() {
-            group.sort_by(|a, b| {
-                b.1.unwrap_or(0)
-                    .cmp(&a.1.unwrap_or(0))
-                    .then_with(|| a.0.cmp(&b.0))
-            });
-        }
+        normalize_groups(&mut grouped);
 
         let mut hasher = Sha256::new();
         hasher.update(hash_state.as_bytes());
@@ -87,8 +105,9 @@ impl MemoryIndex {
         generation: DeploymentGeneration,
         source_hash: String,
         total_entries: usize,
-        entries: BTreeMap<String, Vec<(String, Option<i64>)>>,
+        mut entries: BTreeMap<String, Vec<(String, Option<i64>)>>,
     ) -> Self {
+        normalize_groups(&mut entries);
         Self {
             generation,
             source_hash,
@@ -99,48 +118,104 @@ impl MemoryIndex {
 
     /// Exact code lookup (single key).
     pub fn lookup_exact(&self, code: &str) -> Vec<LexiconEntry> {
+        self.lookup_exact_limited(code, usize::MAX)
+    }
+
+    /// Exact code lookup capped before candidate allocation.
+    pub fn lookup_exact_limited(&self, code: &str, limit: usize) -> Vec<LexiconEntry> {
+        if limit == 0 {
+            return Vec::new();
+        }
         let hash8 = self.source_hash.chars().take(8).collect::<String>();
-        self.entries
-            .get(code)
-            .into_iter()
-            .flatten()
+        let source = format!("dict:{hash8}");
+        let Some(entries) = self.entries.get(code) else {
+            return Vec::new();
+        };
+        entries
+            .iter()
+            .take(limit)
             .map(|(text, weight)| LexiconEntry {
                 text: text.clone(),
                 code: code.to_owned(),
                 weight: weight.unwrap_or(1),
-                source: format!("dict:{hash8}"),
+                source: source.clone(),
                 completion: false,
             })
             .collect()
     }
 
+    /// Whether at least one dictionary code starts with `prefix`.
+    pub fn has_code_prefix(&self, prefix: &str) -> bool {
+        self.entries
+            .range::<str, _>((Included(prefix), Unbounded))
+            .next()
+            .is_some_and(|(code, _)| code.starts_with(prefix))
+    }
+
+    /// Whether a longer, space-delimited code begins with `code`.
+    pub fn has_longer_code(&self, code: &str) -> bool {
+        self.entries
+            .range::<str, _>((Excluded(code), Unbounded))
+            .next()
+            .is_some_and(|(candidate, _)| {
+                candidate.starts_with(code) && candidate.as_bytes().get(code.len()) == Some(&b' ')
+            })
+    }
+
     /// Prefix search: all entries whose code starts with `prefix`.
     /// Returns up to `limit` candidates, sorted by weight descending.
     pub fn lookup_prefix(&self, prefix: &str, limit: usize) -> Vec<LexiconEntry> {
-        use std::collections::BinaryHeap;
-
         if limit == 0 {
             return Vec::new();
         }
-        let end = format!("{prefix}\u{10FFFF}");
-        let range = self.entries.range(prefix.to_string()..=end);
-        let mut heap = BinaryHeap::new();
+
+        #[derive(Eq, PartialEq)]
+        struct RankedRef<'a> {
+            weight: i64,
+            text: &'a str,
+            code: &'a str,
+        }
+
+        impl Ord for RankedRef<'_> {
+            fn cmp(&self, other: &Self) -> Ordering {
+                // BinaryHeap keeps the greatest item at the top. Reverse the
+                // weight comparison so the worst retained candidate is the
+                // one replaced first; larger text/code values lose ties.
+                other
+                    .weight
+                    .cmp(&self.weight)
+                    .then_with(|| self.text.cmp(other.text))
+                    .then_with(|| self.code.cmp(other.code))
+            }
+        }
+
+        impl PartialOrd for RankedRef<'_> {
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+
+        let range = self.entries.range::<str, _>((Included(prefix), Unbounded));
+        let mut heap = BinaryHeap::<RankedRef<'_>>::with_capacity(limit);
 
         for (code, entries) in range {
+            if !code.starts_with(prefix) {
+                break;
+            }
             for (text, weight) in entries {
-                let w = weight.unwrap_or(1);
-                heap.push((w, text.clone(), code.clone()));
-                if heap.len() > limit * 2 {
-                    let mut drained: Vec<_> = heap.drain().collect();
-                    drained.sort_by(|left, right| {
-                        right
-                            .0
-                            .cmp(&left.0)
-                            .then_with(|| left.1.cmp(&right.1))
-                            .then_with(|| left.2.cmp(&right.2))
-                    });
-                    drained.truncate(limit);
-                    heap = drained.into_iter().collect();
+                let candidate = RankedRef {
+                    weight: weight.unwrap_or(1),
+                    text,
+                    code,
+                };
+                if heap.len() < limit {
+                    heap.push(candidate);
+                } else if heap
+                    .peek()
+                    .is_some_and(|worst| candidate.cmp(worst) == Ordering::Less)
+                {
+                    heap.pop();
+                    heap.push(candidate);
                 }
             }
         }
@@ -148,22 +223,22 @@ impl MemoryIndex {
         let mut results: Vec<_> = heap.into_iter().collect();
         results.sort_by(|left, right| {
             right
-                .0
-                .cmp(&left.0)
-                .then_with(|| left.1.cmp(&right.1))
-                .then_with(|| left.2.cmp(&right.2))
+                .weight
+                .cmp(&left.weight)
+                .then_with(|| left.text.cmp(right.text))
+                .then_with(|| left.code.cmp(right.code))
         });
-        results.truncate(limit);
 
         let hash8 = self.source_hash.chars().take(8).collect::<String>();
+        let source = format!("dict:{hash8}");
         results
             .into_iter()
-            .map(|(weight, text, code)| LexiconEntry {
-                completion: code != prefix,
-                text,
-                code,
-                weight,
-                source: format!("dict:{hash8}"),
+            .map(|entry| LexiconEntry {
+                weight: entry.weight,
+                text: entry.text.to_owned(),
+                code: entry.code.to_owned(),
+                completion: entry.code != prefix,
+                source: source.clone(),
             })
             .collect()
     }
@@ -273,6 +348,27 @@ impl CompiledIndex {
         match self {
             CompiledIndex::Memory(m) => m.lookup_exact(code),
             CompiledIndex::Tiered(t) => t.lookup_exact(code),
+        }
+    }
+
+    pub fn lookup_exact_limited(&self, code: &str, limit: usize) -> Vec<LexiconEntry> {
+        match self {
+            CompiledIndex::Memory(m) => m.lookup_exact_limited(code, limit),
+            CompiledIndex::Tiered(t) => t.lookup_exact(code).into_iter().take(limit).collect(),
+        }
+    }
+
+    pub fn has_code_prefix(&self, prefix: &str) -> bool {
+        match self {
+            CompiledIndex::Memory(m) => m.has_code_prefix(prefix),
+            CompiledIndex::Tiered(t) => t.has_code_prefix(prefix),
+        }
+    }
+
+    pub fn has_longer_code(&self, code: &str) -> bool {
+        match self {
+            CompiledIndex::Memory(m) => m.has_longer_code(code),
+            CompiledIndex::Tiered(t) => t.has_longer_code(code),
         }
     }
 

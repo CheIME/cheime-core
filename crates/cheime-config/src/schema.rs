@@ -72,6 +72,9 @@ pub struct EngineConfig {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fuzzy_pinyin: Option<FuzzyPinyinConfig>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinyin_correction: Option<PinyinCorrectionConfig>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -82,6 +85,42 @@ pub struct FuzzyPinyinConfig {
     /// Specific rules to enable (e.g. ["zh_z", "n_l"]). Empty = all standard rules.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PinyinCorrectionConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_max_edit_distance")]
+    pub max_edit_distance: u8,
+    #[serde(default = "default_max_correction_candidates")]
+    pub max_candidates_per_start: usize,
+    #[serde(default = "default_edit_penalty")]
+    pub edit_penalty: i64,
+}
+
+impl Default for PinyinCorrectionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_edit_distance: default_max_edit_distance(),
+            max_candidates_per_start: default_max_correction_candidates(),
+            edit_penalty: default_edit_penalty(),
+        }
+    }
+}
+
+fn default_max_edit_distance() -> u8 {
+    1
+}
+
+fn default_max_correction_candidates() -> usize {
+    16
+}
+
+fn default_edit_penalty() -> i64 {
+    500_000
 }
 
 // ── Processor configs ───────────────────────────────────────────────
@@ -492,6 +531,28 @@ menu:
         assert!(dict.enable_completion);
         assert!(dict.enable_sentence);
         assert_eq!(config.menu.page_size, 9);
+    }
+
+    #[test]
+    fn parse_bounded_pinyin_correction_config() {
+        let yaml = r#"
+schema_version: 1
+engine:
+  segmentors:
+    - type: pinyin_syllable
+  pinyin_correction:
+    enabled: true
+    max_edit_distance: 2
+    max_candidates_per_start: 12
+    edit_penalty: 9000
+"#;
+        let config: SchemaConfig = serde_yaml::from_str(yaml).unwrap();
+        let correction = config.engine.pinyin_correction.expect("correction config");
+
+        assert!(correction.enabled);
+        assert_eq!(correction.max_edit_distance, 2);
+        assert_eq!(correction.max_candidates_per_start, 12);
+        assert_eq!(correction.edit_penalty, 9_000);
     }
 
     #[test]

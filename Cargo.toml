@@ -9,8 +9,10 @@ members = [
     "crates/cheime-model",
     "crates/cheime-pipeline",
     "crates/cheime-protocol",
+    "crates/cheime-session",
     "crates/cheime-tidx",
     "crates/cheime-user-data",
+    "crates/cheime-wire",
 ]
 resolver = "3"
 
