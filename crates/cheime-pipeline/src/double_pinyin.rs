@@ -78,8 +78,11 @@ const FLYPY_KEYS: &[KeyTuple] = &[
 /// MS Double Pinyin (微软双拼), ported from `key_mapper.rs` with the real
 /// scheme's finals: `o → o/uo` (so `guo = g+o`) and `l → ai` (verbatim, so
 /// `shuang = u+d` via uang on `d`, and `u+l` is `shai`).
-/// Single-final per key; full-coverage validation is deferred (the codebase
-/// `j → ian` value differs from the official `j → an`).
+/// Single-final per key. Untypable syllables: zero-initial `an` (`a+j` — j's
+/// `ian` fails the starts-with rule), `er` (`e+r` → `uan` only), `yan` (`y+j`
+/// → `yian`), and the ua-family (`shua`/`zhua`/`chua`); `j → ian` differs
+/// from the official `j → an`. Full-coverage validation is deferred; the
+/// coverage round-trip test is Flypy-only.
 const MS_DOUBLE_KEYS: &[KeyTuple] = &[
     ("a", None, &["a"], true),
     ("b", Some("b"), &["ou"], false),
@@ -110,7 +113,10 @@ const MS_DOUBLE_KEYS: &[KeyTuple] = &[
 ];
 
 /// Ziranma (自然码双拼), ported from `key_mapper.rs` with the real scheme's
-/// finals: `t → ue/ve` so both `xue = x+t` and `lve = l+t` resolve.
+/// finals: `t → ue/ve` so both `xue = x+t` and `lve = l+t` resolve, and
+/// `o → o/uo` (so `guo = g+o`) — the -uo family is resolved.
+/// Untypable syllables: `er` only (`e+r` → `uan`). Full-coverage validation
+/// is deferred; the coverage round-trip test is Flypy-only.
 const ZIRANMA_KEYS: &[KeyTuple] = &[
     ("a", None, &["a"], true),
     ("b", Some("b"), &["ou"], false),
@@ -126,7 +132,7 @@ const ZIRANMA_KEYS: &[KeyTuple] = &[
     ("l", Some("l"), &["ai"], false),
     ("m", Some("m"), &["ian"], false),
     ("n", Some("n"), &["in"], false),
-    ("o", None, &["o"], true),
+    ("o", None, &["o", "uo"], true),
     ("p", Some("p"), &["un"], false),
     ("q", Some("q"), &["iu"], false),
     ("r", Some("r"), &["uan"], false),

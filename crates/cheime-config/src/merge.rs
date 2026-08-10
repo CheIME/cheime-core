@@ -110,7 +110,7 @@ impl ConfigLoader {
 }
 
 /// Deep merge: `child` values override `parent` values.
-/// Lists are replaced entirely (child takes precedence).
+/// Engine component lists are PREPENDED (child's components come first); other lists are replaced.
 /// Maps are merged recursively.
 pub(crate) fn merge_configs(mut parent: SchemaConfig, child: SchemaConfig) -> SchemaConfig {
     // Schema meta

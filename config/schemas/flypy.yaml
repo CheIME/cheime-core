@@ -26,13 +26,11 @@ engine:
       enabled: false
       cost: 250000
 
-  # NOTE: config merge replaces list fields entirely — translators are
-  # repeated here so the dict translator from base.yaml is not lost.
+  # NOTE: config merge PREPENDS child list fields to parent lists
+  # (merge.rs merge_configs) — base.yaml already provides the dict
+  # translator, so flypy.yaml must NOT repeat it (two DictTranslators
+  # would double every dictionary query per keystroke).
   translators:
-    - type: dict
-      dictionary: rime_ice_base
-      enable_completion: true
-      enable_sentence: true
     - type: emoji
 
 speller:
