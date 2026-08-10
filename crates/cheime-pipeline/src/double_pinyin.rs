@@ -333,26 +333,12 @@ impl Segmentor for DoublePinyinSegmentor {
             }
 
             let k1 = byte;
-            // Single-key edges: complete standalone syllables, or the
-            // incomplete initial prefix (v → "zh" for prefix lookup).
-            for syllable in self.table.single_for(k1 as char) {
-                graph.add_edge(SyllableEdge {
-                    span: InputSpan::new(start, start + 1),
-                    raw: composition[start..start + 1].to_owned(),
-                    canonical: syllable.clone(),
-                    kind: SyllableKind::Complete,
-                });
-            }
-            if let Some(initial) = self.table.initial_for(k1 as char) {
-                graph.add_edge(SyllableEdge {
-                    span: InputSpan::new(start, start + 1),
-                    raw: composition[start..start + 1].to_owned(),
-                    canonical: initial.to_owned(),
-                    kind: SyllableKind::Incomplete,
-                });
-            }
 
-            // Exact two-key pairs.
+            // Exact two-key pairs — checked first so the single-key
+            // Incomplete edge can be suppressed when a pair completes at
+            // this start (real IMEs stop offering zh-prefix completion once
+            // "vs" fully types zhong).
+            let mut pair_added = false;
             if start + 1 < bytes.len() && bytes[start + 1].is_ascii_lowercase() {
                 let k2 = bytes[start + 1];
                 for syllable in self.table.pair_for(k1 as char, k2 as char) {
@@ -361,6 +347,30 @@ impl Segmentor for DoublePinyinSegmentor {
                         raw: composition[start..start + 2].to_owned(),
                         canonical: syllable.clone(),
                         kind: SyllableKind::Complete,
+                    });
+                    pair_added = true;
+                }
+            }
+
+            // Single-key complete syllables (zero-initial standalone keys).
+            for syllable in self.table.single_for(k1 as char) {
+                graph.add_edge(SyllableEdge {
+                    span: InputSpan::new(start, start + 1),
+                    raw: composition[start..start + 1].to_owned(),
+                    canonical: syllable.clone(),
+                    kind: SyllableKind::Complete,
+                });
+            }
+
+            // Incomplete initial prefix (v → "zh") for prefix completion —
+            // only when no complete pair exists at this start.
+            if !pair_added {
+                if let Some(initial) = self.table.initial_for(k1 as char) {
+                    graph.add_edge(SyllableEdge {
+                        span: InputSpan::new(start, start + 1),
+                        raw: composition[start..start + 1].to_owned(),
+                        canonical: initial.to_owned(),
+                        kind: SyllableKind::Incomplete,
                     });
                 }
             }
@@ -646,5 +656,26 @@ mod tests {
         assert_eq!(raw.len(), 1);
         assert_eq!(raw[0].span, InputSpan::new(2, 5));
         assert_eq!(raw[0].kind, SyllableKind::Raw);
+    }
+
+    #[test]
+    fn segment_pair_suppresses_mid_pair_incomplete() {
+        // "vs" fully types zhong — no zh-prefix incomplete edge remains,
+        // matching real IME behavior and keeping quanpin/flypy top-K equal.
+        let graph = DoublePinyinSegmentor::flypy().segment("vs");
+        assert!(graph
+            .edges_from(0)
+            .iter()
+            .any(|edge| edge.canonical == "zhong" && edge.kind == SyllableKind::Complete));
+        assert!(
+            !graph.edges_from(0).iter().any(|edge| edge.kind == SyllableKind::Incomplete),
+            "a complete pair must suppress the single-key incomplete edge"
+        );
+        // "v" alone keeps the incomplete edge (prefix completion).
+        let single = DoublePinyinSegmentor::flypy().segment("v");
+        assert!(single
+            .edges_from(0)
+            .iter()
+            .any(|edge| edge.kind == SyllableKind::Incomplete));
     }
 }

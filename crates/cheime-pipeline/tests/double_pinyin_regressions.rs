@@ -64,26 +64,23 @@ fn flypy_vsgo_matches_quanpin_zhongguo() {
     let flypy = type_all(&flypy_pipeline(shared.clone()), "vsgo");
 
     // Exact-match ranking must be scheme-independent: the decoder, ranker,
-    // and dictionary are shared and see only canonical syllables. Completion
-    // candidates are deliberately scheme-specific — the double-pinyin
-    // segmentor exposes single-key Incomplete edges (v → "zh") that quanpin's
-    // does not (Task 2: "prefix completion for free") — so they are excluded
-    // here and asserted separately in flypy_partial_input_offers_prefix_candidates.
+    // and dictionary are shared and see only canonical syllables. The
+    // single-key Incomplete edge (v → "zh") is suppressed whenever a complete
+    // pair exists at the same start (segment_pair_suppresses_mid_pair_incomplete),
+    // so the top-5 candidate lists are strictly equal across schemes.
     let top_quanpin: Vec<String> = quanpin
         .iter()
-        .filter(|c| !c.completion)
         .take(5)
         .map(|c| c.display.text.clone())
         .collect();
     let top_flypy: Vec<String> = flypy
         .iter()
-        .filter(|c| !c.completion)
         .take(5)
         .map(|c| c.display.text.clone())
         .collect();
     assert_eq!(
         top_quanpin, top_flypy,
-        "top-5 dictionary candidates must not depend on the input scheme"
+        "top-5 candidates must not depend on the input scheme"
     );
     let china = flypy.iter().find(|c| c.display.text == "中国").unwrap();
     assert_eq!(china.canonical_code, "zhong guo");
