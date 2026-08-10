@@ -846,19 +846,65 @@ mod tests {
 
     #[test]
     fn double_pinyin_custom_scheme_keys_build() {
+        let index = Arc::new(CompiledIndex::build(
+            vec![DictEntry {
+                text: "啊".into(),
+                code: "a".into(),
+                weight: Some(10),
+                stem: None,
+            }],
+            DeploymentGeneration::new(1),
+        ));
         let pipeline = PipelineFactory::build(
             &conf(
-                "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      keys:\n        - key: a\n          finals: [a]\n          single: true\n        - key: b\n          initial: b\n          finals: [a]\n",
+                "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      keys:\n        - key: a\n          finals: [a]\n          single: true\n        - key: b\n          initial: b\n          finals: [a]\n  translators:\n    - type: dict\n      dictionary: main\n",
             ),
             None,
-            None,
+            Some(index),
             None,
         )
         .unwrap();
-        let first = pipeline.apply("", &key('a')).unwrap();
-        assert_eq!(first.composition, "a");
-        let second = pipeline.apply("a", &key('b')).unwrap();
-        assert_eq!(second.composition, "ab");
+        let mut composition = String::new();
+        let mut update = None;
+        for ch in ['a', 'b'] {
+            update = Some(pipeline.apply(&composition, &key(ch)).unwrap());
+            composition = update.as_ref().unwrap().composition.clone();
+        }
+        assert_eq!(composition, "ab");
+        assert!(
+            update.unwrap().candidates.iter().any(|candidate| candidate.display.text == "啊"),
+            "custom scheme ab must decode to the a-syllable candidate"
+        );
+    }
+
+    #[test]
+    fn from_scheme_config_rejects_conflicting_and_malformed_schemes() {
+        use cheime_config::schema::{DoublePinyinKeyConfig, DoublePinyinPreset, DoublePinyinSchemeConfig};
+        use crate::double_pinyin::CompiledDoublePinyinTable;
+
+        // preset + keys are mutually exclusive
+        let conflict = DoublePinyinSchemeConfig {
+            preset: Some(DoublePinyinPreset::Flypy),
+            keys: vec![DoublePinyinKeyConfig {
+                key: "a".into(),
+                initial: None,
+                finals: vec!["a".into()],
+                single: true,
+            }],
+        };
+        assert!(CompiledDoublePinyinTable::from_scheme_config(&conflict).is_err());
+
+        // multi-char key must be rejected before the chars().next() expect
+        let multi_char = DoublePinyinSchemeConfig {
+            preset: None,
+            keys: vec![DoublePinyinKeyConfig {
+                key: "zh".into(),
+                initial: None,
+                finals: vec!["a".into()],
+                single: true,
+            }],
+        };
+        assert!(CompiledDoublePinyinTable::from_scheme_config(&multi_char).is_err());
     }
 
     #[test]
