@@ -66,7 +66,7 @@ cargo bench --workspace
 
 ```
 KeyEvent → KeyMapper → Processor → Segmentor → Normalizer → Translators → Filters → Ranker → CandidateSnapshot
-           (Flypy)     (按键)       (音节切分)   (模糊音)      (词库+用户+emoji)  (去重)    (多信号排序)
+           (物理键重映射) (按键)    (音节切分: 全拼 Trie / 双拼码表)
 ```
 
 ### 配置驱动

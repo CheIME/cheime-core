@@ -68,7 +68,6 @@ fn real_pipeline() -> impl InputPipeline {
         .unwrap(),
         None,
         Some(real_dict().clone()),
-        None,
     )
     .unwrap()
 }
@@ -81,7 +80,6 @@ fn real_correction_pipeline() -> impl InputPipeline {
         .unwrap(),
         None,
         Some(real_dict().clone()),
-        None,
     )
     .unwrap()
 }
@@ -94,7 +92,6 @@ fn single_character_pipeline() -> impl InputPipeline {
         .unwrap(),
         None,
         Some(single_character_dict().clone()),
-        None,
     )
     .unwrap()
 }
@@ -376,7 +373,6 @@ punctuator:
         &config,
         None,
         Some(real_dict().clone()),
-        None,
     )
     .unwrap();
 
@@ -414,7 +410,6 @@ punctuator:
         &config,
         None,
         Some(real_dict().clone()),
-        None,
     )
     .unwrap();
 
@@ -461,7 +456,6 @@ punctuator:
         &config,
         None,
         Some(real_dict().clone()),
-        None,
     )
     .unwrap();
 
@@ -512,7 +506,6 @@ punctuator:
         &config,
         None,
         Some(real_dict().clone()),
-        None,
     )
     .unwrap();
 
@@ -697,7 +690,7 @@ engine:
 "#,
     )
     .unwrap();
-    let p = PipelineFactory::build(&config, None, Some(real_dict().clone()), None).unwrap();
+    let p = PipelineFactory::build(&config, None, Some(real_dict().clone())).unwrap();
 
     let mut comp = String::new();
     let mut found = false;
@@ -722,7 +715,7 @@ engine:
 "#,
     )
     .unwrap();
-    let p = PipelineFactory::build(&config, None, Some(real_dict().clone()), None).unwrap();
+    let p = PipelineFactory::build(&config, None, Some(real_dict().clone())).unwrap();
 
     let mut comp = String::new();
     let mut final_update = None;
@@ -752,7 +745,7 @@ engine:
 "#,
     )
     .unwrap();
-    let p = PipelineFactory::build(&config, None, Some(real_dict().clone()), None).unwrap();
+    let p = PipelineFactory::build(&config, None, Some(real_dict().clone())).unwrap();
 
     let mut comp = String::new();
     let mut found = false;
@@ -777,7 +770,7 @@ engine:
 "#,
     )
     .unwrap();
-    let p = PipelineFactory::build(&config, None, Some(real_dict().clone()), None).unwrap();
+    let p = PipelineFactory::build(&config, None, Some(real_dict().clone())).unwrap();
 
     let mut comp = String::new();
     let mut found = false;
@@ -804,7 +797,7 @@ engine:
 "#,
     )
     .unwrap();
-    let p = PipelineFactory::build(&config, None, Some(real_dict().clone()), None).unwrap();
+    let p = PipelineFactory::build(&config, None, Some(real_dict().clone())).unwrap();
 
     let mut comp = String::new();
     let mut found = false;

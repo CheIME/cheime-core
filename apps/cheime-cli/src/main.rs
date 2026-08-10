@@ -92,7 +92,7 @@ fn run() -> Result<(), String> {
         options.dictionary_dir.display()
     );
     let pipeline =
-        PipelineFactory::build(&config, Some(store.clone()), Some(dict_index), None).unwrap();
+        PipelineFactory::build(&config, Some(store.clone()), Some(dict_index)).unwrap();
 
     let header = MessageHeader {
         protocol_version: CORE_PROTOCOL_VERSION,

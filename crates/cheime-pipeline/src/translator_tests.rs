@@ -118,7 +118,7 @@ fn full_pipeline_combines_repeated_syllables_from_single_character_entries() {
         "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n",
     )
     .unwrap();
-    let pipeline = PipelineFactory::build(&config, None, Some(test_index()), None).unwrap();
+    let pipeline = PipelineFactory::build(&config, None, Some(test_index())).unwrap();
 
     let mut composition = String::new();
     let mut update = None;

@@ -36,7 +36,7 @@ fn flypy_pipeline(index: Arc<CompiledIndex>) -> impl InputPipeline {
         "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      preset: flypy\n  translators:\n    - type: dict\n      dictionary: main\n",
     )
     .unwrap();
-    PipelineFactory::build(&config, None, Some(index), None).unwrap()
+    PipelineFactory::build(&config, None, Some(index)).unwrap()
 }
 
 fn quanpin_pipeline(index: Arc<CompiledIndex>) -> impl InputPipeline {
@@ -44,7 +44,7 @@ fn quanpin_pipeline(index: Arc<CompiledIndex>) -> impl InputPipeline {
         "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  translators:\n    - type: dict\n      dictionary: main\n",
     )
     .unwrap();
-    PipelineFactory::build(&config, None, Some(index), None).unwrap()
+    PipelineFactory::build(&config, None, Some(index)).unwrap()
 }
 
 fn type_all(pipeline: &impl InputPipeline, keys: &str) -> Vec<ResolvedCandidate> {
@@ -136,7 +136,7 @@ fn correction_toggle_combinations() {
 
     for (name, yaml, expect_zhong) in configs {
         let config: SchemaConfig = serde_yaml::from_str(yaml).unwrap();
-        let pipeline = PipelineFactory::build(&config, None, Some(index()), None).unwrap();
+        let pipeline = PipelineFactory::build(&config, None, Some(index())).unwrap();
         let candidates = type_all(&pipeline, "vd");
         let has_zhong = candidates.iter().any(|candidate| candidate.display.text == "中");
         assert_eq!(
@@ -156,7 +156,7 @@ fn exact_flypy_path_stays_zero_cost_with_corrections() {
         "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      preset: flypy\n    keyboard_mistouch:\n      enabled: true\n      cost: 350000\n    code_confusion:\n      enabled: true\n      cost: 250000\n      rules:\n        - from: vd\n          to: vs\n  translators:\n    - type: dict\n      dictionary: main\n",
     )
     .unwrap();
-    let pipeline = PipelineFactory::build(&config, None, Some(index()), None).unwrap();
+    let pipeline = PipelineFactory::build(&config, None, Some(index())).unwrap();
     let candidates = type_all(&pipeline, "vsgo");
     assert_eq!(
         candidates[0].display.text, "中国",

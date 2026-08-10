@@ -12,7 +12,6 @@ use cheime_pipeline::double_pinyin::{
     CodeConfusionModel, DoublePinyinSegmentor, KeyboardMistouchModel,
 };
 use cheime_pipeline::factory::PipelineFactory;
-use cheime_pipeline::key_mapper::DoublePinyinMapper;
 use cheime_pipeline::processor::DefaultProcessor;
 use cheime_pipeline::ranker::UnifiedRanker;
 use cheime_pipeline::segmentor::{PinyinCorrectionOptions, PinyinSegmentor};
@@ -138,7 +137,7 @@ fn rime_ice_pipeline() -> &'static Arc<dyn InputPipeline> {
             ..Default::default()
         };
 
-        let pipeline = PipelineFactory::build(&config, None, Some(idx), None)
+        let pipeline = PipelineFactory::build(&config, None, Some(idx))
             .expect("failed to build rime_ice pipeline");
         Arc::new(pipeline)
     })
@@ -152,7 +151,7 @@ fn rime_ice_correction_pipeline() -> &'static Arc<dyn InputPipeline> {
         )
         .expect("valid correction benchmark config");
         Arc::new(
-            PipelineFactory::build(&config, None, Some(index), None)
+            PipelineFactory::build(&config, None, Some(index))
                 .expect("failed to build correction pipeline"),
         )
     })
@@ -291,7 +290,6 @@ fn bench_correction_segmentation(c: &mut Criterion) {
 // ── Native double-pinyin (小鹤) ──────────────────────────────────────
 
 static RIME_ICE_DOUBLE_PINYIN_PIPELINE: OnceLock<Arc<dyn InputPipeline>> = OnceLock::new();
-static RIME_ICE_LEGACY_MAPPER_PIPELINE: OnceLock<Arc<dyn InputPipeline>> = OnceLock::new();
 
 fn rime_ice_double_pinyin_pipeline() -> &'static Arc<dyn InputPipeline> {
     RIME_ICE_DOUBLE_PINYIN_PIPELINE.get_or_init(|| {
@@ -304,21 +302,6 @@ fn rime_ice_double_pinyin_pipeline() -> &'static Arc<dyn InputPipeline> {
             vec![],
             Box::new(UnifiedRanker::new(Default::default())),
         ))
-    })
-}
-
-fn rime_ice_legacy_mapper_pipeline() -> &'static Arc<dyn InputPipeline> {
-    RIME_ICE_LEGACY_MAPPER_PIPELINE.get_or_init(|| {
-        let config: SchemaConfig = serde_yaml::from_str(
-            "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  translators:\n    - type: dict\n      dictionary: rime_ice_base\n",
-        )
-        .expect("valid legacy mapper benchmark config");
-        let mapper: Box<dyn cheime_pipeline::key_mapper::KeyMapper> =
-            Box::new(DoublePinyinMapper::flypy());
-        Arc::new(
-            PipelineFactory::build(&config, None, Some(rime_ice_shared_index().clone()), Some(mapper))
-                .expect("failed to build legacy mapper pipeline"),
-        )
     })
 }
 
@@ -406,33 +389,6 @@ fn bench_dp_typing_sentence(c: &mut Criterion) {
     });
 }
 
-// A/B baseline vs the native path (Task 3, 2026-08-11, 539K rime_ice index):
-//   double_pinyin/typing_sentence       29.9 ms   (native: re-decodes every keystroke)
-//   double_pinyin/legacy_mapper_typing  17.2 ms   (legacy: mapper buffers to syllable boundaries)
-// Native exact segmentation is microseconds (segment_exact_8 = 1.26 µs), clearly below the
-// legacy mapper + expanded-quanpin path's millisecond-scale per-key segmentation work. The
-// typing gap is the baseline finding: the stateless native pipeline decodes on every key,
-// while the stateful legacy mapper only re-decodes when a complete syllable is formed.
-
-fn bench_dp_legacy_mapper_typing(c: &mut Criterion) {
-    let pipeline = rime_ice_legacy_mapper_pipeline();
-    let keys = ['v', 's', 'g', 'o', 'x', 'm', 'z', 'l'];
-    c.bench_function("double_pinyin/legacy_mapper_typing", |b| {
-        b.iter(|| {
-            let mut total = 0usize;
-            let mut composition = String::new();
-            for ch in keys {
-                let update = pipeline
-                    .apply(black_box(&composition), black_box(&char_key(ch)))
-                    .unwrap();
-                composition = update.composition;
-                total = total.wrapping_add(update.candidates.len());
-            }
-            black_box(total);
-        })
-    });
-}
-
 // ── Criterion groups ─────────────────────────────────────────────────
 
 criterion_group!(
@@ -453,6 +409,14 @@ criterion_group!(
     bench_correction_segmentation,
 );
 
+// A/B baseline vs the native path (Task 3, 2026-08-11, 539K rime_ice index):
+//   double_pinyin/typing_sentence       29.9 ms   (native: re-decodes every keystroke)
+//   double_pinyin/legacy_mapper_typing  17.2 ms   (legacy: mapper buffers to syllable boundaries)
+// Native exact segmentation is microseconds (segment_exact_8 = 1.26 µs), clearly below the
+// legacy mapper + expanded-quanpin path's millisecond-scale per-key segmentation work. The
+// typing gap is the baseline finding: the stateless native pipeline decodes on every key,
+// while the stateful legacy mapper only re-decodes when a complete syllable is formed.
+
 criterion_group!(
     double_pinyin,
     bench_dp_segment_exact_1,
@@ -464,7 +428,6 @@ criterion_group!(
     bench_dp_decode_short,
     bench_dp_decode_sentence,
     bench_dp_typing_sentence,
-    bench_dp_legacy_mapper_typing,
 );
 
 criterion_main!(tiny, real, double_pinyin);

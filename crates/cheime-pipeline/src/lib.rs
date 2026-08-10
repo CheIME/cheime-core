@@ -189,6 +189,11 @@ impl ComposablePipeline {
         }
     }
 
+    /// Attach a physical layout remapper (e.g. Dvorak, Colemak).
+    ///
+    /// Input coding schemes (quanpin / double pinyin) are selected by the
+    /// `engine.input` schema and handled by the segmentor stage — this hook
+    /// is only for physical key remapping.
     pub fn with_key_mapper(mut self, km: Box<dyn KeyMapper>) -> Self {
         self.key_mapper = Some(parking_lot::Mutex::new(km));
         self

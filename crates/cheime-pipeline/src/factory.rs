@@ -38,10 +38,9 @@ impl PipelineFactory {
         config: &SchemaConfig,
         user_store: Option<Arc<Mutex<UserStore>>>,
         dict_index: Option<Arc<CompiledIndex>>,
-        key_mapper: Option<Box<dyn crate::key_mapper::KeyMapper>>,
     ) -> Result<ComposablePipeline, BuildError> {
         let learning = user_store.map(LearningService::production).map(Arc::new);
-        Self::build_with_learning(config, learning, dict_index, key_mapper)
+        Self::build_with_learning(config, learning, dict_index)
     }
 
     /// Build a pipeline with an explicitly supplied language model.
@@ -52,30 +51,21 @@ impl PipelineFactory {
         config: &SchemaConfig,
         user_store: Option<Arc<Mutex<UserStore>>>,
         dict_index: Option<Arc<CompiledIndex>>,
-        key_mapper: Option<Box<dyn crate::key_mapper::KeyMapper>>,
         language_model: Arc<dyn LanguageModel>,
     ) -> Result<ComposablePipeline, BuildError> {
         let learning = user_store.map(LearningService::production).map(Arc::new);
-        Self::build_with_learning_and_language_model(
-            config,
-            learning,
-            dict_index,
-            key_mapper,
-            language_model,
-        )
+        Self::build_with_learning_and_language_model(config, learning, dict_index, language_model)
     }
 
     pub fn build_with_learning(
         config: &SchemaConfig,
         learning: Option<Arc<LearningService>>,
         dict_index: Option<Arc<CompiledIndex>>,
-        key_mapper: Option<Box<dyn crate::key_mapper::KeyMapper>>,
     ) -> Result<ComposablePipeline, BuildError> {
         Self::build_with_learning_and_language_model(
             config,
             learning,
             dict_index,
-            key_mapper,
             Arc::new(NullLanguageModel),
         )
     }
@@ -84,7 +74,6 @@ impl PipelineFactory {
         config: &SchemaConfig,
         learning: Option<Arc<LearningService>>,
         dict_index: Option<Arc<CompiledIndex>>,
-        key_mapper: Option<Box<dyn crate::key_mapper::KeyMapper>>,
         language_model: Arc<dyn LanguageModel>,
     ) -> Result<ComposablePipeline, BuildError> {
         let user_store = learning.as_ref().map(|service| service.store());
@@ -105,9 +94,6 @@ impl PipelineFactory {
         );
         if let Some(learning) = learning {
             p = p.with_learning(learning);
-        }
-        if let Some(km) = key_mapper {
-            p = p.with_key_mapper(km);
         }
         Ok(p)
     }
@@ -501,7 +487,7 @@ mod tests {
     }
     #[test]
     fn empty_config_works() {
-        let p = PipelineFactory::build(&conf("schema_version: 1\nengine: {}\n"), None, None, None)
+        let p = PipelineFactory::build(&conf("schema_version: 1\nengine: {}\n"), None, None)
             .unwrap();
         let r = p
             .apply(
@@ -523,7 +509,6 @@ mod tests {
         let p = PipelineFactory::build(
             &conf("schema_version: 1\nengine: {}\n"),
             Some(Arc::new(Mutex::new(s))),
-            None,
             None,
         )
         .unwrap();
@@ -555,14 +540,11 @@ mod tests {
             }],
             cheime_model::DeploymentGeneration::new(1),
         ));
-        let pipeline = PipelineFactory::build(
-            &conf(
-                "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  translators:\n    - type: dict\n      dictionary: main\n",
-            ),
-            Some(Arc::new(Mutex::new(store))),
-            Some(index),
-            None,
-        )
+        let pipeline = PipelineFactory::build(&conf(
+            "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  translators:\n    - type: dict\n      dictionary: main\n",
+        ),
+        Some(Arc::new(Mutex::new(store))),
+        Some(index))
         .unwrap();
         let update = pipeline
             .apply(
@@ -612,14 +594,11 @@ mod tests {
             ],
             cheime_model::DeploymentGeneration::new(1),
         ));
-        let pipeline = PipelineFactory::build(
-            &conf(
-                "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  translators:\n    - type: dict\n      dictionary: main\n",
-            ),
-            Some(Arc::new(Mutex::new(store))),
-            Some(index),
-            None,
-        )
+        let pipeline = PipelineFactory::build(&conf(
+            "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  translators:\n    - type: dict\n      dictionary: main\n",
+        ),
+        Some(Arc::new(Mutex::new(store))),
+        Some(index))
         .unwrap();
 
         let ziji = pipeline.refresh("ziji").unwrap();
@@ -649,14 +628,11 @@ mod tests {
             }],
             cheime_model::DeploymentGeneration::new(1),
         ));
-        let pipeline = PipelineFactory::build(
-            &conf(
-                "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  translators:\n    - type: dict\n      dictionary: main\n",
-            ),
-            Some(Arc::new(Mutex::new(store))),
-            Some(index),
-            None,
-        )
+        let pipeline = PipelineFactory::build(&conf(
+            "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  translators:\n    - type: dict\n      dictionary: main\n",
+        ),
+        Some(Arc::new(Mutex::new(store))),
+        Some(index))
         .unwrap();
 
         let candidates = pipeline.refresh("nihao").unwrap();
@@ -706,7 +682,6 @@ mod tests {
             &conf("schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n"),
             None,
             Some(index),
-            None,
             model,
         )
         .unwrap();
@@ -732,7 +707,6 @@ mod tests {
             ),
             None,
             Some(index),
-            None,
         )
         .unwrap();
 
@@ -789,7 +763,6 @@ mod tests {
             &conf("schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n"),
             None,
             Some(idx),
-            None,
         )
         .unwrap();
 
@@ -827,7 +800,6 @@ mod tests {
             ),
             None,
             Some(tiny_index()),
-            None,
         )
         .unwrap();
         let mut composition = String::new();
@@ -855,7 +827,6 @@ mod tests {
             ),
             None,
             Some(tiny_index()),
-            None,
         )
         .unwrap();
         let mut composition = String::new();
@@ -878,7 +849,6 @@ mod tests {
             ),
             None,
             Some(tiny_index()),
-            None,
         )
         .unwrap();
         let mut composition = String::new();
@@ -910,7 +880,6 @@ mod tests {
             ),
             None,
             Some(index),
-            None,
         )
         .unwrap();
         let mut composition = String::new();
@@ -964,7 +933,6 @@ mod tests {
             ),
             None,
             None,
-            None,
         );
         assert!(matches!(
             result,
@@ -977,7 +945,6 @@ mod tests {
             &conf(
                 "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      preset: flypy\n    keyboard_mistouch:\n      enabled: true\n      layout: dvorak\n",
             ),
-            None,
             None,
             None,
         )

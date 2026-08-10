@@ -15,13 +15,13 @@ Highest-coupling subsystem: converts a `KeyEvent` plus composition into candidat
 | Fuzzy/abbreviation expansion | `src/normalizer.rs` | May multiply segment variants |
 | Static/user/emoji candidates | `src/translator.rs`, `src/emoji.rs` | Translators append into one candidate list |
 | Dedup and ordering | `src/filter.rs`, `src/ranker.rs` | Filters run before ranker |
-| Double-pinyin input | `src/key_mapper.rs` | Mapper can emit multiple synthetic characters |
+| Double-pinyin input | `src/double_pinyin.rs` | Native segmentor: compiled raw-code → canonical-syllable graph |
 | Fast test double | `src/builtin.rs` | Inline entries, no full component chain |
 | Real dictionary behavior | `tests/stress_tests.rs` | Embedded rime_ice fixture |
 
 ## EXECUTION ORDER
 
-`ComposablePipeline::apply` first runs the optional stateful `KeyMapper`. Every emitted character is passed through `apply_internal` in order. The internal order is fixed:
+`ComposablePipeline::apply` first runs the optional physical `KeyMapper` (layout remapping only — coding schemes live in the segmentor). Every emitted character is passed through `apply_internal` in order. The internal order is fixed:
 
 ```text
 Processor -> Segmentor -> optional CodeNormalizer -> Translators

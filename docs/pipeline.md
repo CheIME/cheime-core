@@ -7,7 +7,7 @@
 ```
 Key Event
   ↓
-KeyMapper      ← 可选的编码映射 (Flypy 双拼状态机 / 全拼透传)
+KeyMapper      ← 可选物理键重映射 (仅布局; 编码方案由 Segmentor 处理)
   ↓
 Processor      ← 按键处理: 字母追加 / Backspace / Enter 提交 / Escape 取消
   ↓
@@ -39,49 +39,14 @@ pub trait KeyMapper: Send + Sync {
 | 实现 | 说明 |
 |---|---|
 | `QuanPinMapper` | 全拼透传: 字母键直接映射到自身 |
-| `DoublePinyinMapper` | **可配置双拼状态机**: 2 键→拼音, 支持 3 种预设 + 自定义 TSV 键位 |
 
-### DoublePinyinMapper 预设
+### 双拼 (Double Pinyin)
 
-```rust
-// 小鹤双拼
-let mapper = DoublePinyinMapper::flypy();
-// 微软双拼
-let mapper = DoublePinyinMapper::ms_double();
-// 自然码双拼
-let mapper = DoublePinyinMapper::ziranma();
-```
-
-### 自定义键位 (TSV 格式)
-
-```
-# key  initial  final  standalone
-a	   a       1       ← 零声母立即输出
-b	b	in	0       ← 声母 b, 韵母 in
-v	zh	ui	0       ← 声母 zh, 韵母 ui
-```
-
-```rust
-let tsv = std::fs::read_to_string("my_scheme.tsv")?;
-let mapper = DoublePinyinMapper::from_tsv(&tsv)?;
-```
-
-### `standalone` 标志
-
-零声母键 (a/e/o) 的 `standalone` 控制行为:
-- `true` (默认): 立即输出为独立音节, 如 `a`→"a"
-- `false`: 作为零声母缓冲, 等待第二键, 如 `ad`→"ai"
-
-### 配置
-
-```yaml
-# KeyMapper 是运行时组件, 通过 PipelineFactory::build() 传入
-# 不在 YAML 中配置
-let pipeline = PipelineFactory::build(
-    config, store, dict,
-    Some(Box::new(DoublePinyinMapper::flypy())),
-);
-```
+双拼不再由 KeyMapper 展开。`DoublePinyinSegmentor`（`src/double_pinyin.rs`）在加载时把方案表
+（`engine.input.double_pinyin.scheme`，预设 flypy / ms_double / ziranma 或内联 keys）
+编译为 raw code → canonical 音节表，`segment()` 直接产出音节图边
+（span 为原始双拼键位，canonical 为全拼音节）。纠错模型（键盘邻键、码混淆）
+只追加带 cost 的边，不修改 raw composition。
 
 ## 2. Processor (code: `processor.rs`, `punctuator.rs`)
 
