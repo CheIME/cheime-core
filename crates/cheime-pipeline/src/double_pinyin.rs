@@ -69,9 +69,9 @@ const FLYPY_KEYS: &[KeyTuple] = &[
     ("z", Some("z"), &["ou"], false),
 ];
 
-/// MS Double Pinyin (微软双拼), ported from `key_mapper.rs` with two
-/// deviations required by the spec'd spot checks: `l → uang` (not `ai`,
-/// so `shuang = u+l`) and `o → o/uo` (not `o`, so `guo = g+o`).
+/// MS Double Pinyin (微软双拼), ported from `key_mapper.rs` with the real
+/// scheme's finals: `o → o/uo` (so `guo = g+o`) and `l → ai` (verbatim, so
+/// `shuang = u+d` via uang on `d`, and `u+l` is `shai`).
 /// Single-final per key; full-coverage validation is deferred (the codebase
 /// `j → ian` value differs from the official `j → an`).
 const MS_DOUBLE_KEYS: &[KeyTuple] = &[
@@ -86,7 +86,7 @@ const MS_DOUBLE_KEYS: &[KeyTuple] = &[
     ("i", Some("ch"), &["i"], false),
     ("j", Some("j"), &["ian"], false),
     ("k", Some("k"), &["ao"], false),
-    ("l", Some("l"), &["uang"], false),
+    ("l", Some("l"), &["ai"], false),
     ("m", Some("m"), &["ian"], false),
     ("n", Some("n"), &["in"], false),
     ("o", None, &["o", "uo"], true),
@@ -103,8 +103,8 @@ const MS_DOUBLE_KEYS: &[KeyTuple] = &[
     ("z", Some("z"), &["ei"], false),
 ];
 
-/// Ziranma (自然码双拼), ported from `key_mapper.rs` with one deviation:
-/// `t → ue/ve` (not just `ve`) so both `xue = x+t` and `lve = l+t` resolve.
+/// Ziranma (自然码双拼), ported from `key_mapper.rs` with the real scheme's
+/// finals: `t → ue/ve` so both `xue = x+t` and `lve = l+t` resolve.
 const ZIRANMA_KEYS: &[KeyTuple] = &[
     ("a", None, &["a"], true),
     ("b", Some("b"), &["ou"], false),
@@ -382,12 +382,14 @@ mod tests {
 
     #[test]
     fn ms_and_ziranma_presets_compile_spot_checks() {
-        // MS: zhong = v+s; guo = g+o; shuang = u+l
+        // MS: zhong = v+s; guo = g+o (o carries uo); shuang = u+d (d carries uang);
+        // lai = l+l (l carries ai); u+l would be shai, not shuang.
         let ms = CompiledDoublePinyinTable::ms_double();
         expect_pair(&ms, 'v', 's', &["zhong"]);
         expect_pair(&ms, 'g', 'o', &["guo"]);
-        expect_pair(&ms, 'u', 'l', &["shuang"]);
-        // Ziranma: zhong = v+s; xue = x+t (t → ve)
+        expect_pair(&ms, 'u', 'd', &["shuang"]);
+        expect_pair(&ms, 'l', 'l', &["lai"]);
+        // Ziranma: zhong = v+s; xue = x+t (t → ue/ve)
         let zr = CompiledDoublePinyinTable::ziranma();
         expect_pair(&zr, 'v', 's', &["zhong"]);
         expect_pair(&zr, 'x', 't', &["xue"]);
