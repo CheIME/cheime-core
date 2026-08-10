@@ -174,7 +174,7 @@ pub struct DoublePinyinKeyConfig {
     pub single: bool,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct KeyboardMistouchConfig {
     #[serde(default)]
@@ -185,7 +185,19 @@ pub struct KeyboardMistouchConfig {
     pub layout: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+impl Default for KeyboardMistouchConfig {
+    /// Must mirror the serde defaults — a consumer building this via
+    /// `Default::default()` must get the load-bearing contract values.
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            cost: default_keyboard_mistouch_cost(),
+            layout: default_keyboard_layout(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CodeConfusionConfig {
     #[serde(default)]
@@ -194,6 +206,17 @@ pub struct CodeConfusionConfig {
     pub cost: i64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<CodeConfusionRuleConfig>,
+}
+
+impl Default for CodeConfusionConfig {
+    /// Must mirror the serde defaults — see [`KeyboardMistouchConfig::default`].
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            cost: default_code_confusion_cost(),
+            rules: Vec::new(),
+        }
+    }
 }
 
 /// Directional confusion rule: the user typed `from` but meant `to`.
@@ -865,6 +888,27 @@ engine:
         assert_eq!(confusion.rules[0].to, "vs");
         assert_eq!(confusion.rules[0].cost, None);
         assert_eq!(confusion.rules[1].cost, Some(180_000));
+    }
+
+    #[test]
+    fn input_double_pinyin_defaults_apply_when_omitted() {
+        let config = parse_schema(
+            "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      preset: flypy\n    keyboard_mistouch:\n      enabled: true\n    code_confusion:\n      enabled: true\n",
+        );
+        let Some(InputConfig::DoublePinyin(input)) = &config.engine.input else {
+            panic!("expected double_pinyin input");
+        };
+        let mistouch = input.keyboard_mistouch.as_ref().unwrap();
+        assert!(mistouch.enabled);
+        assert_eq!(mistouch.cost, 350_000, "omitted cost must fall back to the contract default");
+        assert_eq!(mistouch.layout, "qwerty");
+        let confusion = input.code_confusion.as_ref().unwrap();
+        assert!(confusion.enabled);
+        assert_eq!(confusion.cost, 250_000);
+        // Rust Default impls must mirror the serde defaults.
+        assert_eq!(KeyboardMistouchConfig::default().cost, 350_000);
+        assert_eq!(KeyboardMistouchConfig::default().layout, "qwerty");
+        assert_eq!(CodeConfusionConfig::default().cost, 250_000);
     }
 
     #[test]
