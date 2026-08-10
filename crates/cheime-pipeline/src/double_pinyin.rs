@@ -294,15 +294,117 @@ use crate::segmentation::{InputSpan, SegmentationGraph, SyllableEdge, SyllableKi
 #[derive(Clone, Debug)]
 pub struct DoublePinyinSegmentor {
     table: CompiledDoublePinyinTable,
+    keyboard: Option<KeyboardMistouchModel>,
 }
 
 impl DoublePinyinSegmentor {
     pub fn new(table: CompiledDoublePinyinTable) -> Self {
-        Self { table }
+        Self { table, keyboard: None }
     }
 
     pub fn flypy() -> Self {
         Self::new(CompiledDoublePinyinTable::flypy())
+    }
+
+    /// Enable keyboard-mistouch substitution (adjacent-key typos).
+    pub fn with_keyboard(mut self, model: KeyboardMistouchModel) -> Self {
+        self.keyboard = Some(model);
+        self
+    }
+}
+
+/// 8-neighborhood adjacency on a standard QWERTY layout, as byte strings,
+/// indexed by key letter (`QWERTY_NEIGHBORS[b'a' + k]` = neighbors of key `k`).
+const QWERTY_NEIGHBORS: &[&[u8]] = &[
+    b"qwszx",    // a
+    b"vghn",     // b
+    b"xdfv",     // c
+    b"sefrxcv",  // d
+    b"wrsdf",    // e
+    b"drgtcvb",  // f
+    b"fthyvbn",  // g
+    b"gyjubnm",  // h
+    b"uojkl",    // i
+    b"hukinm",   // j
+    b"jilom",    // k
+    b"kop",      // l
+    b"njk",      // m
+    b"bhjm",     // n
+    b"ipkl",     // o
+    b"ol",       // p
+    b"was",      // q
+    b"etdfg",    // r
+    b"awdexzc",  // s
+    b"ryfgh",    // t
+    b"yihjk",    // u
+    b"cfgb",     // v
+    b"qeasd",    // w
+    b"zsdc",     // x
+    b"tughj",    // y
+    b"asx",      // z
+];
+
+/// Keyboard mistouch model: one key of a two-key pair typed as an adjacent
+/// key (substitution only — no insert/delete/swap in this version).
+///
+/// For observed pair `(k1, k2)` the model re-queries the compiled table with
+/// `k1` replaced by each of its neighbors and with `k2` replaced by each of
+/// its neighbors. Only pairs that actually compile produce edges, so the
+/// expansion stays at a handful per position — never 676.
+#[derive(Clone, Debug)]
+pub struct KeyboardMistouchModel {
+    cost: i64,
+    neighbors: &'static [&'static [u8]],
+}
+
+impl KeyboardMistouchModel {
+    pub fn qwerty(cost: i64) -> Self {
+        Self {
+            cost,
+            neighbors: QWERTY_NEIGHBORS,
+        }
+    }
+
+    pub(crate) fn append_edges(
+        &self,
+        composition: &str,
+        start: usize,
+        bytes: &[u8],
+        table: &CompiledDoublePinyinTable,
+        graph: &mut SegmentationGraph,
+    ) {
+        if start + 1 >= bytes.len() || !bytes[start + 1].is_ascii_lowercase() {
+            return;
+        }
+        let k1 = (bytes[start] - b'a') as usize;
+        let k2 = (bytes[start + 1] - b'a') as usize;
+        let raw = composition[start..start + 2].to_owned();
+        for &neighbor in self.neighbors[k1] {
+            for syllable in table.pair_for(neighbor as char, bytes[start + 1] as char) {
+                graph.add_edge_with_cost(
+                    SyllableEdge {
+                        span: InputSpan::new(start, start + 2),
+                        raw: raw.clone(),
+                        canonical: syllable.clone(),
+                        kind: SyllableKind::Complete,
+                    },
+                    self.cost,
+                );
+            }
+        }
+        for &neighbor in self.neighbors[k2] {
+            for syllable in table.pair_for(bytes[start] as char, neighbor as char) {
+                graph.add_edge_with_cost(
+                    SyllableEdge {
+                        span: InputSpan::new(start, start + 2),
+                        raw: raw.clone(),
+                        canonical: syllable.clone(),
+                        kind: SyllableKind::Complete,
+                    },
+                    self.cost,
+                );
+            }
+        }
     }
 }
 
@@ -350,6 +452,13 @@ impl Segmentor for DoublePinyinSegmentor {
                     });
                     pair_added = true;
                 }
+            }
+
+            // Keyboard-mistouch variants: the same span re-queried with one
+            // key replaced by an adjacent key, at the model's cost. Exact
+            // edges above stay zero-cost.
+            if let Some(keyboard) = &self.keyboard {
+                keyboard.append_edges(composition, start, bytes, &self.table, &mut graph);
             }
 
             // Single-key complete syllables (zero-initial standalone keys).
@@ -677,5 +786,60 @@ mod tests {
             .edges_from(0)
             .iter()
             .any(|edge| edge.kind == SyllableKind::Incomplete));
+    }
+
+    #[test]
+    fn keyboard_vd_offers_zhong_with_cost() {
+        let segmentor = DoublePinyinSegmentor::flypy()
+            .with_keyboard(KeyboardMistouchModel::qwerty(350_000));
+        let graph = segmentor.segment("vd");
+        let zhong = graph
+            .edges_from(0)
+            .iter()
+            .find(|edge| edge.canonical == "zhong")
+            .expect("d's neighbor s turns vd into vs → zhong");
+        assert_eq!(zhong.kind, SyllableKind::Complete);
+        assert_eq!(graph.edge_cost(zhong), 350_000);
+        let zhai = graph
+            .edges_from(0)
+            .iter()
+            .find(|edge| edge.canonical == "zhai")
+            .expect("vd is exact zhai");
+        assert_eq!(graph.edge_cost(zhai), 0, "exact path must stay free");
+    }
+
+    #[test]
+    fn keyboard_exact_path_stays_zero() {
+        let segmentor = DoublePinyinSegmentor::flypy()
+            .with_keyboard(KeyboardMistouchModel::qwerty(350_000));
+        let graph = segmentor.segment("vsgo");
+        let zhong = graph
+            .edges_from(0)
+            .iter()
+            .find(|edge| edge.canonical == "zhong")
+            .unwrap();
+        assert_eq!(graph.edge_cost(zhong), 0);
+        let guo = graph
+            .edges_from(2)
+            .iter()
+            .find(|edge| edge.canonical == "guo")
+            .unwrap();
+        assert_eq!(graph.edge_cost(guo), 0);
+    }
+
+    #[test]
+    fn no_corrections_means_no_cost_edges() {
+        let graph = DoublePinyinSegmentor::flypy().segment("vd");
+        assert!(!graph.has_costs());
+    }
+
+    #[test]
+    fn keyboard_alternative_count_is_bounded() {
+        let segmentor = DoublePinyinSegmentor::flypy()
+            .with_keyboard(KeyboardMistouchModel::qwerty(350_000));
+        let graph = segmentor.segment("vd");
+        // exact zhai + neighbor variants (cai, gai, bai, zhong, zhe, zhen,
+        // zhuan, zhua, zhao, zhui) — never 676.
+        assert!(graph.edges_from(0).len() <= 16);
     }
 }

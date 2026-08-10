@@ -8,7 +8,7 @@
 use cheime_config::schema::{EngineConfig, SchemaConfig, SegmentorConfig};
 use cheime_dictionary::{CompiledIndex, DictColumn, parse_body};
 use cheime_model::{DeploymentGeneration, Key, KeyEvent, KeyState};
-use cheime_pipeline::double_pinyin::DoublePinyinSegmentor;
+use cheime_pipeline::double_pinyin::{DoublePinyinSegmentor, KeyboardMistouchModel};
 use cheime_pipeline::factory::PipelineFactory;
 use cheime_pipeline::key_mapper::DoublePinyinMapper;
 use cheime_pipeline::processor::DefaultProcessor;
@@ -341,8 +341,15 @@ fn bench_dp_segment_exact_16(c: &mut Criterion) {
     });
 }
 
-// Keyboard/confusion segment benches arrive with the models (Tasks 7–8);
-// add them there using the same shape (segmentor.with_keyboard/with_confusion).
+fn bench_dp_segment_keyboard_8(c: &mut Criterion) {
+    let segmentor = DoublePinyinSegmentor::flypy()
+        .with_keyboard(KeyboardMistouchModel::qwerty(350_000));
+    c.bench_function("double_pinyin/segment_keyboard_8", |b| {
+        b.iter(|| segmentor.segment(black_box("vsgoxmzl")))
+    });
+}
+
+// Confusion segment bench arrives with the model (Task 8).
 
 fn bench_dp_decode_short(c: &mut Criterion) {
     let pipeline = rime_ice_double_pinyin_pipeline();
@@ -429,6 +436,7 @@ criterion_group!(
     bench_dp_segment_exact_1,
     bench_dp_segment_exact_8,
     bench_dp_segment_exact_16,
+    bench_dp_segment_keyboard_8,
     bench_dp_decode_short,
     bench_dp_decode_sentence,
     bench_dp_typing_sentence,

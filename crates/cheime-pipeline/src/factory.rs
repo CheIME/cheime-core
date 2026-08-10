@@ -121,7 +121,7 @@ impl PipelineFactory {
         Ok(inner)
     }
     fn build_segmentor(e: &EngineConfig) -> Result<Box<dyn Segmentor>, BuildError> {
-        use crate::double_pinyin::{CompiledDoublePinyinTable, DoublePinyinSegmentor};
+        use crate::double_pinyin::{CompiledDoublePinyinTable, DoublePinyinSegmentor, KeyboardMistouchModel};
         use cheime_config::schema::InputConfig;
 
         match &e.input {
@@ -141,9 +141,20 @@ impl PipelineFactory {
             Some(InputConfig::DoublePinyin(input)) => {
                 let table = CompiledDoublePinyinTable::from_scheme_config(&input.scheme)
                     .map_err(|message| BuildError::InvalidDoublePinyinScheme { message })?;
-                // keyboard_mistouch / code_confusion are wired by the
-                // error-correction tasks (keyboard → Task 7, confusion → Task 8).
-                Ok(Box::new(DoublePinyinSegmentor::new(table)))
+                let mut segmentor = DoublePinyinSegmentor::new(table);
+                if let Some(mistouch) = &input.keyboard_mistouch {
+                    if mistouch.enabled {
+                        if mistouch.layout != "qwerty" {
+                            return Err(BuildError::UnsupportedKeyboardLayout {
+                                layout: mistouch.layout.clone(),
+                            });
+                        }
+                        segmentor =
+                            segmentor.with_keyboard(KeyboardMistouchModel::qwerty(mistouch.cost));
+                    }
+                }
+                // code_confusion is wired by Task 8.
+                Ok(Box::new(segmentor))
             }
             None => {
                 // Legacy path: schemas without `engine.input`.
@@ -356,6 +367,9 @@ pub enum BuildError {
     InvalidDoublePinyinScheme {
         message: String,
     },
+    UnsupportedKeyboardLayout {
+        layout: String,
+    },
 }
 
 impl std::fmt::Display for BuildError {
@@ -369,6 +383,9 @@ impl std::fmt::Display for BuildError {
             Self::SimplifierLoad { error } => write!(f, "simplifier load failed: {error}"),
             Self::InvalidDoublePinyinScheme { message } => {
                 write!(f, "invalid double-pinyin scheme: {message}")
+            }
+            Self::UnsupportedKeyboardLayout { layout } => {
+                write!(f, "unsupported keyboard layout '{layout}' (only 'qwerty' is available)")
             }
         }
     }
@@ -402,6 +419,11 @@ impl BuildError {
                 "E-SCHEME-INVALID",
                 cheime_diagnostics::Severity::ComponentInit,
                 format!("Invalid double-pinyin scheme: {message}"),
+            ),
+            Self::UnsupportedKeyboardLayout { layout } => cheime_diagnostics::DiagnosticError::new(
+                "E-KEYBOARD-LAYOUT",
+                cheime_diagnostics::Severity::ComponentInit,
+                format!("Unsupported keyboard layout '{layout}' (only 'qwerty' is available)"),
             ),
         }
     }
@@ -921,5 +943,20 @@ mod tests {
             result,
             Err(BuildError::InvalidDoublePinyinScheme { .. })
         ));
+    }
+    #[test]
+    fn double_pinyin_unknown_keyboard_layout_is_rejected() {
+        let error = PipelineFactory::build(
+            &conf(
+                "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      preset: flypy\n    keyboard_mistouch:\n      enabled: true\n      layout: dvorak\n",
+            ),
+            None,
+            None,
+            None,
+        )
+        // `.err()` instead of `.unwrap_err()`: ComposablePipeline is not Debug.
+        .err()
+        .expect("unknown keyboard layout must fail the build");
+        assert!(matches!(error, BuildError::UnsupportedKeyboardLayout { .. }));
     }
 }
