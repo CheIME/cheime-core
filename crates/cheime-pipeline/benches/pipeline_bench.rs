@@ -11,6 +11,12 @@ use cheime_model::{DeploymentGeneration, Key, KeyEvent, KeyState};
 use cheime_pipeline::factory::PipelineFactory;
 use cheime_pipeline::segmentor::{PinyinCorrectionOptions, PinyinSegmentor};
 use cheime_pipeline::{BuiltinPipeline, InputPipeline, Segmentor};
+use cheime_pipeline::double_pinyin::DoublePinyinSegmentor;
+use cheime_pipeline::key_mapper::DoublePinyinMapper;
+use cheime_pipeline::processor::DefaultProcessor;
+use cheime_pipeline::ranker::UnifiedRanker;
+use cheime_pipeline::translator::DictTranslator;
+use cheime_pipeline::ComposablePipeline;
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use std::sync::{Arc, OnceLock};
 
@@ -98,6 +104,19 @@ fn bench_typing_zhongguo(c: &mut Criterion) {
 static RIME_ICE_PIPELINE: OnceLock<Arc<dyn InputPipeline>> = OnceLock::new();
 static RIME_ICE_CORRECTION_PIPELINE: OnceLock<Arc<dyn InputPipeline>> = OnceLock::new();
 
+static RIME_ICE_INDEX: OnceLock<Arc<CompiledIndex>> = OnceLock::new();
+
+fn rime_ice_shared_index() -> &'static Arc<CompiledIndex> {
+    RIME_ICE_INDEX.get_or_init(|| {
+        let raw = include_str!("../../../data/dicts/rime_ice_base.dict.yaml");
+        let body = dictionary_body(raw);
+        let columns = &[DictColumn::Text, DictColumn::Code, DictColumn::Weight];
+        let entries = parse_body(body, columns).expect("failed to parse rime_ice body");
+        eprintln!("rime_ice index: {} entries loaded", entries.len());
+        Arc::new(CompiledIndex::build(entries, DeploymentGeneration::new(1)))
+    })
+}
+
 fn dictionary_body(raw: &str) -> &str {
     raw.find("\n...\r\n")
         .map(|position| &raw[position + 6..])
@@ -107,12 +126,7 @@ fn dictionary_body(raw: &str) -> &str {
 
 fn rime_ice_pipeline() -> &'static Arc<dyn InputPipeline> {
     RIME_ICE_PIPELINE.get_or_init(|| {
-        let raw = include_str!("../../../data/dicts/rime_ice_base.dict.yaml");
-        let body = dictionary_body(raw);
-        let cols = &[DictColumn::Text, DictColumn::Code, DictColumn::Weight];
-        let entries = parse_body(body, cols).expect("failed to parse rime_ice body");
-        eprintln!("rime_ice pipeline: {} entries loaded", entries.len());
-        let idx = Arc::new(CompiledIndex::build(entries, DeploymentGeneration::new(1)));
+        let idx = rime_ice_shared_index().clone();
 
         let config = SchemaConfig {
             schema_version: 1,
@@ -131,14 +145,7 @@ fn rime_ice_pipeline() -> &'static Arc<dyn InputPipeline> {
 
 fn rime_ice_correction_pipeline() -> &'static Arc<dyn InputPipeline> {
     RIME_ICE_CORRECTION_PIPELINE.get_or_init(|| {
-        let raw = include_str!("../../../data/dicts/rime_ice_base.dict.yaml");
-        let body = dictionary_body(raw);
-        let columns = &[DictColumn::Text, DictColumn::Code, DictColumn::Weight];
-        let entries = parse_body(body, columns).expect("failed to parse rime_ice body");
-        let index = Arc::new(CompiledIndex::build(
-            entries,
-            DeploymentGeneration::new(1),
-        ));
+        let index = rime_ice_shared_index().clone();
         let config: SchemaConfig = serde_yaml::from_str(
             "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  pinyin_correction:\n    enabled: true\n",
         )
@@ -280,6 +287,124 @@ fn bench_correction_segmentation(c: &mut Criterion) {
     });
 }
 
+// ── Native double-pinyin (小鹤) ──────────────────────────────────────
+
+static RIME_ICE_DOUBLE_PINYIN_PIPELINE: OnceLock<Arc<dyn InputPipeline>> = OnceLock::new();
+static RIME_ICE_LEGACY_MAPPER_PIPELINE: OnceLock<Arc<dyn InputPipeline>> = OnceLock::new();
+
+fn rime_ice_double_pinyin_pipeline() -> &'static Arc<dyn InputPipeline> {
+    RIME_ICE_DOUBLE_PINYIN_PIPELINE.get_or_init(|| {
+        let index = rime_ice_shared_index().clone();
+        Arc::new(ComposablePipeline::new(
+            Box::new(DefaultProcessor::new()),
+            Box::new(DoublePinyinSegmentor::flypy()),
+            None,
+            vec![Box::new(DictTranslator::new("rime_ice_base", index))],
+            vec![],
+            Box::new(UnifiedRanker::new(Default::default())),
+        ))
+    })
+}
+
+fn rime_ice_legacy_mapper_pipeline() -> &'static Arc<dyn InputPipeline> {
+    RIME_ICE_LEGACY_MAPPER_PIPELINE.get_or_init(|| {
+        let config: SchemaConfig = serde_yaml::from_str(
+            "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  translators:\n    - type: dict\n      dictionary: rime_ice_base\n",
+        )
+        .expect("valid legacy mapper benchmark config");
+        let mapper: Box<dyn cheime_pipeline::key_mapper::KeyMapper> =
+            Box::new(DoublePinyinMapper::flypy());
+        Arc::new(
+            PipelineFactory::build(&config, None, Some(rime_ice_shared_index().clone()), Some(mapper))
+                .expect("failed to build legacy mapper pipeline"),
+        )
+    })
+}
+
+fn bench_dp_segment_exact_1(c: &mut Criterion) {
+    let segmentor = DoublePinyinSegmentor::flypy();
+    c.bench_function("double_pinyin/segment_exact_1", |b| {
+        b.iter(|| segmentor.segment(black_box("v")))
+    });
+}
+
+fn bench_dp_segment_exact_8(c: &mut Criterion) {
+    let segmentor = DoublePinyinSegmentor::flypy();
+    c.bench_function("double_pinyin/segment_exact_8", |b| {
+        b.iter(|| segmentor.segment(black_box("vsgoxmzl")))
+    });
+}
+
+fn bench_dp_segment_exact_16(c: &mut Criterion) {
+    let segmentor = DoublePinyinSegmentor::flypy();
+    c.bench_function("double_pinyin/segment_exact_16", |b| {
+        b.iter(|| segmentor.segment(black_box("vsgoxmzlqduwnbiy")))
+    });
+}
+
+// Keyboard/confusion segment benches arrive with the models (Tasks 7–8);
+// add them there using the same shape (segmentor.with_keyboard/with_confusion).
+
+fn bench_dp_decode_short(c: &mut Criterion) {
+    let pipeline = rime_ice_double_pinyin_pipeline();
+    c.bench_function("double_pinyin/decode_short", |b| {
+        b.iter(|| pipeline.refresh(black_box("vsgo")).unwrap())
+    });
+}
+
+fn bench_dp_decode_sentence(c: &mut Criterion) {
+    let pipeline = rime_ice_double_pinyin_pipeline();
+    c.bench_function("double_pinyin/decode_sentence", |b| {
+        b.iter(|| pipeline.refresh(black_box("vsgoxmzlqduwnbiy")).unwrap())
+    });
+}
+
+fn bench_dp_typing_sentence(c: &mut Criterion) {
+    let pipeline = rime_ice_double_pinyin_pipeline();
+    let keys = ['v', 's', 'g', 'o', 'x', 'm', 'z', 'l'];
+    c.bench_function("double_pinyin/typing_sentence", |b| {
+        b.iter(|| {
+            let mut total = 0usize;
+            let mut composition = String::new();
+            for ch in keys {
+                let update = pipeline
+                    .apply(black_box(&composition), black_box(&char_key(ch)))
+                    .unwrap();
+                composition = update.composition;
+                total = total.wrapping_add(update.candidates.len());
+            }
+            black_box(total);
+        })
+    });
+}
+
+// A/B baseline vs the native path (Task 3, 2026-08-11, 539K rime_ice index):
+//   double_pinyin/typing_sentence       29.9 ms   (native: re-decodes every keystroke)
+//   double_pinyin/legacy_mapper_typing  17.2 ms   (legacy: mapper buffers to syllable boundaries)
+// Native exact segmentation is microseconds (segment_exact_8 = 1.26 µs), clearly below the
+// legacy mapper + expanded-quanpin path's millisecond-scale per-key segmentation work. The
+// typing gap is the baseline finding: the stateless native pipeline decodes on every key,
+// while the stateful legacy mapper only re-decodes when a complete syllable is formed.
+
+fn bench_dp_legacy_mapper_typing(c: &mut Criterion) {
+    let pipeline = rime_ice_legacy_mapper_pipeline();
+    let keys = ['v', 's', 'g', 'o', 'x', 'm', 'z', 'l'];
+    c.bench_function("double_pinyin/legacy_mapper_typing", |b| {
+        b.iter(|| {
+            let mut total = 0usize;
+            let mut composition = String::new();
+            for ch in keys {
+                let update = pipeline
+                    .apply(black_box(&composition), black_box(&char_key(ch)))
+                    .unwrap();
+                composition = update.composition;
+                total = total.wrapping_add(update.candidates.len());
+            }
+            black_box(total);
+        })
+    });
+}
+
 // ── Criterion groups ─────────────────────────────────────────────────
 
 criterion_group!(
@@ -300,4 +425,15 @@ criterion_group!(
     bench_correction_segmentation,
 );
 
-criterion_main!(tiny, real);
+criterion_group!(
+    double_pinyin,
+    bench_dp_segment_exact_1,
+    bench_dp_segment_exact_8,
+    bench_dp_segment_exact_16,
+    bench_dp_decode_short,
+    bench_dp_decode_sentence,
+    bench_dp_typing_sentence,
+    bench_dp_legacy_mapper_typing,
+);
+
+criterion_main!(tiny, real, double_pinyin);
