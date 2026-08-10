@@ -75,6 +75,11 @@ pub struct EngineConfig {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinyin_correction: Option<PinyinCorrectionConfig>,
+
+    /// Input scheme. `None` = legacy: `segmentors` + `pinyin_correction`
+    /// drive the pipeline (quanpin semantics).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<InputConfig>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -109,6 +114,108 @@ impl Default for PinyinCorrectionConfig {
             edit_penalty: default_edit_penalty(),
         }
     }
+}
+
+// ── Input scheme configs ────────────────────────────────────────────
+
+/// Input scheme selector. `QuanPin` and `DoublePinyin` differ only in the
+/// raw-code → canonical-syllable stage; everything downstream is shared.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum InputConfig {
+    #[serde(rename = "quanpin")]
+    QuanPin(QuanPinInputConfig),
+    #[serde(rename = "double_pinyin")]
+    DoublePinyin(DoublePinyinInputConfig),
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct QuanPinInputConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spelling_correction: Option<PinyinCorrectionConfig>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DoublePinyinInputConfig {
+    pub scheme: DoublePinyinSchemeConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keyboard_mistouch: Option<KeyboardMistouchConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_confusion: Option<CodeConfusionConfig>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DoublePinyinSchemeConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<DoublePinyinPreset>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keys: Vec<DoublePinyinKeyConfig>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DoublePinyinPreset {
+    Flypy,
+    MsDouble,
+    Ziranma,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DoublePinyinKeyConfig {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial: Option<String>,
+    pub finals: Vec<String>,
+    #[serde(default)]
+    pub single: bool,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct KeyboardMistouchConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_keyboard_mistouch_cost")]
+    pub cost: i64,
+    #[serde(default = "default_keyboard_layout")]
+    pub layout: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodeConfusionConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_code_confusion_cost")]
+    pub cost: i64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<CodeConfusionRuleConfig>,
+}
+
+/// Directional confusion rule: the user typed `from` but meant `to`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodeConfusionRuleConfig {
+    pub from: String,
+    pub to: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<i64>,
+}
+
+fn default_keyboard_mistouch_cost() -> i64 {
+    350_000
+}
+
+fn default_keyboard_layout() -> String {
+    String::from("qwerty")
+}
+
+fn default_code_confusion_cost() -> i64 {
+    250_000
 }
 
 fn default_max_edit_distance() -> u8 {
@@ -718,5 +825,104 @@ engine:
 "#;
         let result: Result<SchemaConfig, _> = serde_yaml::from_str(yaml);
         assert!(result.is_err());
+    }
+    fn parse_schema(yaml: &str) -> SchemaConfig {
+        serde_yaml::from_str(yaml).unwrap()
+    }
+
+    #[test]
+    fn input_double_pinyin_preset_parses() {
+        let config = parse_schema(
+            "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      preset: flypy\n",
+        );
+        let Some(InputConfig::DoublePinyin(input)) = &config.engine.input else {
+            panic!("expected double_pinyin input");
+        };
+        assert_eq!(input.scheme.preset, Some(DoublePinyinPreset::Flypy));
+        assert!(input.scheme.keys.is_empty());
+        assert!(input.keyboard_mistouch.is_none());
+        assert!(input.code_confusion.is_none());
+    }
+
+    #[test]
+    fn input_double_pinyin_full_config_parses() {
+        let config = parse_schema(
+            "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      preset: ziranma\n    keyboard_mistouch:\n      enabled: true\n      cost: 350000\n      layout: qwerty\n    code_confusion:\n      enabled: true\n      cost: 250000\n      rules:\n        - from: vd\n          to: vs\n        - from: ab\n          to: ad\n          cost: 180000\n",
+        );
+        let Some(InputConfig::DoublePinyin(input)) = &config.engine.input else {
+            panic!("expected double_pinyin input");
+        };
+        assert_eq!(input.scheme.preset, Some(DoublePinyinPreset::Ziranma));
+        let mistouch = input.keyboard_mistouch.as_ref().unwrap();
+        assert!(mistouch.enabled);
+        assert_eq!(mistouch.cost, 350_000);
+        assert_eq!(mistouch.layout, "qwerty");
+        let confusion = input.code_confusion.as_ref().unwrap();
+        assert!(confusion.enabled);
+        assert_eq!(confusion.cost, 250_000);
+        assert_eq!(confusion.rules.len(), 2);
+        assert_eq!(confusion.rules[0].from, "vd");
+        assert_eq!(confusion.rules[0].to, "vs");
+        assert_eq!(confusion.rules[0].cost, None);
+        assert_eq!(confusion.rules[1].cost, Some(180_000));
+    }
+
+    #[test]
+    fn input_double_pinyin_custom_keys_parse() {
+        let config = parse_schema(
+            "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      keys:\n        - key: a\n          finals: [a]\n          single: true\n        - key: b\n          initial: b\n          finals: [a]\n",
+        );
+        let Some(InputConfig::DoublePinyin(input)) = &config.engine.input else {
+            panic!("expected double_pinyin input");
+        };
+        assert!(input.scheme.preset.is_none());
+        assert_eq!(input.scheme.keys.len(), 2);
+        assert_eq!(input.scheme.keys[0].key, "a");
+        assert_eq!(input.scheme.keys[0].finals, vec![String::from("a")]);
+        assert!(input.scheme.keys[0].single);
+        assert_eq!(input.scheme.keys[1].initial.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn input_quanpin_parses() {
+        let config = parse_schema(
+            "schema_version: 1\nengine:\n  input:\n    type: quanpin\n    spelling_correction:\n      enabled: true\n      max_edit_distance: 2\n",
+        );
+        let Some(InputConfig::QuanPin(input)) = &config.engine.input else {
+            panic!("expected quanpin input");
+        };
+        let correction = input.spelling_correction.as_ref().unwrap();
+        assert!(correction.enabled);
+        assert_eq!(correction.max_edit_distance, 2);
+    }
+
+    #[test]
+    fn input_absent_round_trips_to_none() {
+        let config = parse_schema("schema_version: 1\nengine: {}\n");
+        assert!(config.engine.input.is_none());
+    }
+
+    #[test]
+    fn input_rejects_unknown_variant() {
+        assert!(serde_yaml::from_str::<SchemaConfig>(
+            "schema_version: 1\nengine:\n  input:\n    type: wubi\n"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn input_rejects_unknown_field() {
+        assert!(serde_yaml::from_str::<SchemaConfig>(
+            "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      preset: flypy\n    extra: 1\n"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn input_rejects_unknown_preset() {
+        assert!(serde_yaml::from_str::<SchemaConfig>(
+            "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      preset: bogus\n"
+        )
+        .is_err());
     }
 }
