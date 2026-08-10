@@ -121,10 +121,13 @@ impl PipelineFactory {
         Ok(inner)
     }
     fn build_segmentor(e: &EngineConfig) -> Result<Box<dyn Segmentor>, BuildError> {
-        for s in &e.segmentors {
-            if matches!(s, SegmentorConfig::PinyinSyllable) {
+        use crate::double_pinyin::{CompiledDoublePinyinTable, DoublePinyinSegmentor};
+        use cheime_config::schema::InputConfig;
+
+        match &e.input {
+            Some(InputConfig::QuanPin(input)) => {
                 let mut segmentor = PinyinSegmentor::new();
-                if let Some(correction) = &e.pinyin_correction {
+                if let Some(correction) = &input.spelling_correction {
                     segmentor =
                         segmentor.with_correction(crate::segmentor::PinyinCorrectionOptions {
                             enabled: correction.enabled,
@@ -133,27 +136,61 @@ impl PipelineFactory {
                             edit_penalty: correction.edit_penalty,
                         });
                 }
-                return Ok(Box::new(segmentor));
+                Ok(Box::new(segmentor))
+            }
+            Some(InputConfig::DoublePinyin(input)) => {
+                let table = CompiledDoublePinyinTable::from_scheme_config(&input.scheme)
+                    .map_err(|message| BuildError::InvalidDoublePinyinScheme { message })?;
+                // keyboard_mistouch / code_confusion are wired by the
+                // error-correction tasks (keyboard → Task 7, confusion → Task 8).
+                Ok(Box::new(DoublePinyinSegmentor::new(table)))
+            }
+            None => {
+                // Legacy path: schemas without `engine.input`.
+                for s in &e.segmentors {
+                    if matches!(s, SegmentorConfig::PinyinSyllable) {
+                        let mut segmentor = PinyinSegmentor::new();
+                        if let Some(correction) = &e.pinyin_correction {
+                            segmentor = segmentor
+                                .with_correction(crate::segmentor::PinyinCorrectionOptions {
+                                    enabled: correction.enabled,
+                                    max_edit_distance: correction.max_edit_distance,
+                                    max_candidates_per_start: correction.max_candidates_per_start,
+                                    edit_penalty: correction.edit_penalty,
+                                });
+                        }
+                        return Ok(Box::new(segmentor));
+                    }
+                }
+                Ok(Box::new(PassthroughSegmentor))
             }
         }
-        Ok(Box::new(PassthroughSegmentor))
     }
     fn build_normalizer(e: &EngineConfig) -> Option<Box<dyn crate::normalizer::CodeNormalizer>> {
         use crate::normalizer::{AbbreviationNormalizer, CompositeNormalizer, FuzzyNormalizer};
-        use cheime_config::schema::SegmentorConfig;
+        use cheime_config::schema::{InputConfig, SegmentorConfig};
 
         let mut normalizers: Vec<Box<dyn crate::normalizer::CodeNormalizer>> = Vec::new();
 
-        // Abbreviation normalizer (auto-enabled for pinyin segmentor)
-        if e.segmentors
-            .iter()
-            .any(|s| matches!(s, SegmentorConfig::PinyinSyllable))
-        {
+        let is_quanpin = match &e.input {
+            Some(InputConfig::QuanPin(_)) => true,
+            Some(InputConfig::DoublePinyin(_)) => false,
+            None => e
+                .segmentors
+                .iter()
+                .any(|s| matches!(s, SegmentorConfig::PinyinSyllable)),
+        };
+
+        // Abbreviation (简拼) only applies to quanpin: double-pinyin single
+        // keys are already Incomplete edges with the initial as canonical
+        // (e.g. `v` → "zh"), which gives prefix completion for free.
+        if is_quanpin {
             normalizers.push(Box::new(AbbreviationNormalizer::new()));
         }
 
-        // Fuzzy normalizer (configurable)
-        if let Some(ref fuzzy) = e.fuzzy_pinyin {
+        // Fuzzy pinyin normalization is shared: it operates on canonical
+        // syllables, after the input scheme has been decoded.
+        if let Some(fuzzy) = &e.fuzzy_pinyin {
             if fuzzy.enabled {
                 if fuzzy.rules.is_empty() {
                     normalizers.push(Box::new(FuzzyNormalizer::standard()));
@@ -316,6 +353,9 @@ pub enum BuildError {
     SimplifierLoad {
         error: String,
     },
+    InvalidDoublePinyinScheme {
+        message: String,
+    },
 }
 
 impl std::fmt::Display for BuildError {
@@ -327,6 +367,9 @@ impl std::fmt::Display for BuildError {
             } => write!(f, "unsupported '{component_type}' in {pipeline_stage}"),
             Self::MissingDictionary { name } => write!(f, "dictionary '{name}' not found"),
             Self::SimplifierLoad { error } => write!(f, "simplifier load failed: {error}"),
+            Self::InvalidDoublePinyinScheme { message } => {
+                write!(f, "invalid double-pinyin scheme: {message}")
+            }
         }
     }
 }
@@ -355,6 +398,11 @@ impl BuildError {
                 cheime_diagnostics::Severity::ComponentInit,
                 error.clone(),
             ),
+            Self::InvalidDoublePinyinScheme { message } => cheime_diagnostics::DiagnosticError::new(
+                "E-SCHEME-INVALID",
+                cheime_diagnostics::Severity::ComponentInit,
+                format!("Invalid double-pinyin scheme: {message}"),
+            ),
         }
     }
 }
@@ -365,8 +413,42 @@ mod tests {
     use crate::InputPipeline;
     use cheime_config::schema::SchemaConfig;
     use cheime_model::{Key, KeyEvent};
+    use cheime_dictionary::{CompiledIndex, DictEntry};
+    use cheime_model::DeploymentGeneration;
     fn conf(y: &str) -> SchemaConfig {
         serde_yaml::from_str(y).unwrap()
+    }
+    fn key(ch: char) -> KeyEvent {
+        KeyEvent {
+            key: Key::Character(ch),
+            state: Default::default(),
+        }
+    }
+
+    fn tiny_index() -> Arc<CompiledIndex> {
+        Arc::new(CompiledIndex::build(
+            vec![
+                DictEntry {
+                    text: "中".into(),
+                    code: "zhong".into(),
+                    weight: Some(100),
+                    stem: None,
+                },
+                DictEntry {
+                    text: "国".into(),
+                    code: "guo".into(),
+                    weight: Some(100),
+                    stem: None,
+                },
+                DictEntry {
+                    text: "中国".into(),
+                    code: "zhong guo".into(),
+                    weight: Some(500),
+                    stem: None,
+                },
+            ],
+            DeploymentGeneration::new(1),
+        ))
     }
     #[test]
     fn empty_config_works() {
@@ -687,5 +769,111 @@ mod tests {
                 );
             }
         }
+    }
+    #[test]
+    fn double_pinyin_input_builds_native_segmentor() {
+        let pipeline = PipelineFactory::build(
+            &conf(
+                "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      preset: flypy\n  translators:\n    - type: dict\n      dictionary: main\n",
+            ),
+            None,
+            Some(tiny_index()),
+            None,
+        )
+        .unwrap();
+        let mut composition = String::new();
+        let mut update = None;
+        for ch in ['v', 's', 'g', 'o'] {
+            update = Some(pipeline.apply(&composition, &key(ch)).unwrap());
+            composition = update.as_ref().unwrap().composition.clone();
+        }
+        let update = update.unwrap();
+        let china = update
+            .candidates
+            .iter()
+            .find(|candidate| candidate.display.text == "中国")
+            .expect("vsgo must produce 中国");
+        assert_eq!(china.consumed, InputSpan::new(0, 4));
+        assert_eq!(china.canonical_code, "zhong guo");
+        assert!(china.complete);
+    }
+
+    #[test]
+    fn legacy_config_without_input_still_builds_quanpin() {
+        let pipeline = PipelineFactory::build(
+            &conf(
+                "schema_version: 1\nengine:\n  segmentors:\n    - type: pinyin_syllable\n  translators:\n    - type: dict\n      dictionary: main\n",
+            ),
+            None,
+            Some(tiny_index()),
+            None,
+        )
+        .unwrap();
+        let mut composition = String::new();
+        let mut update = None;
+        for ch in ['z', 'h', 'o', 'n', 'g'] {
+            update = Some(pipeline.apply(&composition, &key(ch)).unwrap());
+            composition = update.as_ref().unwrap().composition.clone();
+        }
+        assert!(
+            update.unwrap().candidates.iter().any(|candidate| candidate.display.text == "中"),
+            "legacy quanpin path must keep working"
+        );
+    }
+
+    #[test]
+    fn quanpin_input_with_spelling_correction_works() {
+        let pipeline = PipelineFactory::build(
+            &conf(
+                "schema_version: 1\nengine:\n  input:\n    type: quanpin\n    spelling_correction:\n      enabled: true\n      max_candidates_per_start: 64\n  translators:\n    - type: dict\n      dictionary: main\n",
+            ),
+            None,
+            Some(tiny_index()),
+            None,
+        )
+        .unwrap();
+        let mut composition = String::new();
+        let mut update = None;
+        for ch in ['z', 'h', 'o', 'g', 'n'] {
+            update = Some(pipeline.apply(&composition, &key(ch)).unwrap());
+            composition = update.as_ref().unwrap().composition.clone();
+        }
+        assert!(
+            update.unwrap().candidates.iter().any(|candidate| candidate.display.text == "中"),
+            "spelling correction must recover 中 from zhogn"
+        );
+    }
+
+    #[test]
+    fn double_pinyin_custom_scheme_keys_build() {
+        let pipeline = PipelineFactory::build(
+            &conf(
+                "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      keys:\n        - key: a\n          finals: [a]\n          single: true\n        - key: b\n          initial: b\n          finals: [a]\n",
+            ),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let first = pipeline.apply("", &key('a')).unwrap();
+        assert_eq!(first.composition, "a");
+        let second = pipeline.apply("a", &key('b')).unwrap();
+        assert_eq!(second.composition, "ab");
+    }
+
+    #[test]
+    fn double_pinyin_scheme_without_preset_or_keys_is_rejected() {
+        let result = PipelineFactory::build(
+            &conf(
+                "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme: {}\n",
+            ),
+            None,
+            None,
+            None,
+        );
+        assert!(matches!(
+            result,
+            Err(BuildError::InvalidDoublePinyinScheme { .. })
+        ));
     }
 }

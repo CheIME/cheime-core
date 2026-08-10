@@ -8,6 +8,7 @@
 //! `un`/`vn`) work without special cases.
 
 use crate::segmentor::PINYIN_SYLLABLES;
+use cheime_config::schema::{DoublePinyinPreset, DoublePinyinSchemeConfig};
 
 /// One key of a double-pinyin scheme.
 ///
@@ -161,6 +162,37 @@ impl CompiledDoublePinyinTable {
 
     pub fn ziranma() -> Self {
         Self::compile(&keys_from_tuples(ZIRANMA_KEYS)).expect("ziranma preset is valid")
+    }
+
+    /// Resolve a schema scheme config (preset name or inline keys) into a table.
+    pub fn from_scheme_config(scheme: &DoublePinyinSchemeConfig) -> Result<Self, String> {
+        match (scheme.preset, scheme.keys.is_empty()) {
+            (Some(DoublePinyinPreset::Flypy), true) => Ok(Self::flypy()),
+            (Some(DoublePinyinPreset::MsDouble), true) => Ok(Self::ms_double()),
+            (Some(DoublePinyinPreset::Ziranma), true) => Ok(Self::ziranma()),
+            (Some(_), false) => {
+                Err(String::from("scheme: preset and keys are mutually exclusive"))
+            }
+            (None, false) => {
+                let mut keys = Vec::with_capacity(scheme.keys.len());
+                for configured in &scheme.keys {
+                    if configured.key.chars().count() != 1 {
+                        return Err(format!(
+                            "scheme: key must be a single character, got {:?}",
+                            configured.key
+                        ));
+                    }
+                    keys.push(DoublePinyinKey {
+                        key: configured.key.chars().next().expect("length checked"),
+                        initial: configured.initial.clone(),
+                        finals: configured.finals.clone(),
+                        single: configured.single,
+                    });
+                }
+                Self::compile(&keys)
+            }
+            (None, true) => Err(String::from("scheme: preset or keys required")),
+        }
     }
 
     /// Compile a scheme against the valid-pinyin syllable set.
