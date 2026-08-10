@@ -3,6 +3,7 @@
 
 mod builtin;
 pub mod decoder;
+pub mod double_pinyin;
 pub mod emoji;
 pub mod evaluation;
 pub mod factory;
