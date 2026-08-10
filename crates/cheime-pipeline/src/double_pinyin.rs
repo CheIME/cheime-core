@@ -36,7 +36,12 @@ pub struct CompiledDoublePinyinTable {
 }
 
 /// Preset tables as `(key, initial, finals, single)` tuples.
-type KeyTuple = (&'static str, Option<&'static str>, &'static [&'static str], bool);
+type KeyTuple = (
+    &'static str,
+    Option<&'static str>,
+    &'static [&'static str],
+    bool,
+);
 
 /// Flypy (小鹤双拼), including multi-final keys and ü-spellings:
 /// `k` → ing/uai, `l` → uang/iang, `o` → o/uo, `r` → uan/er, `s` → ong/iong,
@@ -170,9 +175,9 @@ impl CompiledDoublePinyinTable {
             (Some(DoublePinyinPreset::Flypy), true) => Ok(Self::flypy()),
             (Some(DoublePinyinPreset::MsDouble), true) => Ok(Self::ms_double()),
             (Some(DoublePinyinPreset::Ziranma), true) => Ok(Self::ziranma()),
-            (Some(_), false) => {
-                Err(String::from("scheme: preset and keys are mutually exclusive"))
-            }
+            (Some(_), false) => Err(String::from(
+                "scheme: preset and keys are mutually exclusive",
+            )),
             (None, false) => {
                 let mut keys = Vec::with_capacity(scheme.keys.len());
                 for configured in &scheme.keys {
@@ -327,32 +332,32 @@ impl DoublePinyinSegmentor {
 /// 8-neighborhood adjacency on a standard QWERTY layout, as byte strings,
 /// indexed by key position 0..26 (`QWERTY_NEIGHBORS[(k - b'a') as usize]` = neighbors of key `k`),
 const QWERTY_NEIGHBORS: &[&[u8]] = &[
-    b"qwszx",    // a
-    b"vghn",     // b
-    b"xdfv",     // c
-    b"sefrxcv",  // d
-    b"wrsdf",    // e
-    b"drgtcvb",  // f
-    b"fthyvbn",  // g
-    b"gyjubnm",  // h
-    b"uojkl",    // i
-    b"hukinm",   // j
-    b"jilom",    // k
-    b"kop",      // l
-    b"njk",      // m
-    b"bhjm",     // n
-    b"ipkl",     // o
-    b"ol",       // p
-    b"was",      // q
-    b"etdfg",    // r
-    b"awdexzc",  // s
-    b"ryfgh",    // t
-    b"yihjk",    // u
-    b"cfgb",     // v
-    b"qeasd",    // w
-    b"zsdc",     // x
-    b"tughj",    // y
-    b"asx",      // z
+    b"qwszx",   // a
+    b"vghn",    // b
+    b"xdfv",    // c
+    b"sefrxcv", // d
+    b"wrsdf",   // e
+    b"drgtcvb", // f
+    b"fthyvbn", // g
+    b"gyjubnm", // h
+    b"uojkl",   // i
+    b"hukinm",  // j
+    b"jilom",   // k
+    b"kop",     // l
+    b"njk",     // m
+    b"bhjm",    // n
+    b"ipkl",    // o
+    b"ol",      // p
+    b"was",     // q
+    b"etdfg",   // r
+    b"awdexzc", // s
+    b"ryfgh",   // t
+    b"yihjk",   // u
+    b"cfgb",    // v
+    b"qeasd",   // w
+    b"zsdc",    // x
+    b"tughj",   // y
+    b"asx",     // z
 ];
 
 /// Keyboard mistouch model: one key of a two-key pair typed as an adjacent
@@ -447,7 +452,9 @@ impl CodeConfusionModel {
                 ));
             }
             if from == to {
-                return Err(format!("confusion rule must not map a pair to itself: {from:?}"));
+                return Err(format!(
+                    "confusion rule must not map a pair to itself: {from:?}"
+                ));
             }
             let observed = pair_index(from.as_bytes()[0], from.as_bytes()[1]);
             let intended = pair_index(to.as_bytes()[0], to.as_bytes()[1]);
@@ -579,8 +586,8 @@ impl Segmentor for DoublePinyinSegmentor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::segmentation::{InputSpan, SyllableKind};
     use crate::Segmentor;
+    use crate::segmentation::{InputSpan, SyllableKind};
 
     fn expect_pair(table: &CompiledDoublePinyinTable, k1: char, k2: char, syllables: &[&str]) {
         let actual: Vec<&str> = table.pair_for(k1, k2).iter().map(String::as_str).collect();
@@ -682,8 +689,18 @@ mod tests {
     #[test]
     fn compile_rejects_invalid_keys() {
         let duplicate = vec![
-            DoublePinyinKey { key: 'a', initial: None, finals: vec![String::from("a")], single: true },
-            DoublePinyinKey { key: 'a', initial: None, finals: vec![String::from("ai")], single: true },
+            DoublePinyinKey {
+                key: 'a',
+                initial: None,
+                finals: vec![String::from("a")],
+                single: true,
+            },
+            DoublePinyinKey {
+                key: 'a',
+                initial: None,
+                finals: vec![String::from("ai")],
+                single: true,
+            },
         ];
         assert!(CompiledDoublePinyinTable::compile(&duplicate).is_err());
 
@@ -761,10 +778,12 @@ mod tests {
     #[test]
     fn segment_odd_length_keeps_trailing_incomplete() {
         let graph = DoublePinyinSegmentor::flypy().segment("vsg");
-        assert!(graph
-            .edges_from(0)
-            .iter()
-            .any(|edge| edge.canonical == "zhong" && edge.span == InputSpan::new(0, 2)));
+        assert!(
+            graph
+                .edges_from(0)
+                .iter()
+                .any(|edge| edge.canonical == "zhong" && edge.span == InputSpan::new(0, 2))
+        );
         let trailing = graph.edges_from(2);
         assert_eq!(trailing.len(), 1);
         assert_eq!(trailing[0].canonical, "g");
@@ -778,10 +797,12 @@ mod tests {
         assert_eq!(quote.len(), 1);
         assert_eq!(quote[0].raw, "'");
         assert_eq!(quote[0].kind, SyllableKind::Raw);
-        assert!(graph
-            .edges_from(3)
-            .iter()
-            .any(|edge| edge.canonical == "guo" && edge.span == InputSpan::new(3, 5)));
+        assert!(
+            graph
+                .edges_from(3)
+                .iter()
+                .any(|edge| edge.canonical == "guo" && edge.span == InputSpan::new(3, 5))
+        );
         assert!(graph.has_complete_path());
     }
 
@@ -841,14 +862,18 @@ mod tests {
         // "vs中go": the 3-byte char becomes one Raw edge; pairs still work
         // around it. The byte loop must never slice at a continuation byte.
         let graph = DoublePinyinSegmentor::flypy().segment("vs中go");
-        assert!(graph
-            .edges_from(0)
-            .iter()
-            .any(|edge| edge.canonical == "zhong" && edge.span == InputSpan::new(0, 2)));
-        assert!(graph
-            .edges_from(5)
-            .iter()
-            .any(|edge| edge.canonical == "guo" && edge.span == InputSpan::new(5, 7)));
+        assert!(
+            graph
+                .edges_from(0)
+                .iter()
+                .any(|edge| edge.canonical == "zhong" && edge.span == InputSpan::new(0, 2))
+        );
+        assert!(
+            graph
+                .edges_from(5)
+                .iter()
+                .any(|edge| edge.canonical == "guo" && edge.span == InputSpan::new(5, 7))
+        );
         let raw = graph.edges_from(2);
         assert_eq!(raw.len(), 1);
         assert_eq!(raw[0].span, InputSpan::new(2, 5));
@@ -860,26 +885,33 @@ mod tests {
         // "vs" fully types zhong — no zh-prefix incomplete edge remains,
         // matching real IME behavior and keeping quanpin/flypy top-K equal.
         let graph = DoublePinyinSegmentor::flypy().segment("vs");
-        assert!(graph
-            .edges_from(0)
-            .iter()
-            .any(|edge| edge.canonical == "zhong" && edge.kind == SyllableKind::Complete));
         assert!(
-            !graph.edges_from(0).iter().any(|edge| edge.kind == SyllableKind::Incomplete),
+            graph
+                .edges_from(0)
+                .iter()
+                .any(|edge| edge.canonical == "zhong" && edge.kind == SyllableKind::Complete)
+        );
+        assert!(
+            !graph
+                .edges_from(0)
+                .iter()
+                .any(|edge| edge.kind == SyllableKind::Incomplete),
             "a complete pair must suppress the single-key incomplete edge"
         );
         // "v" alone keeps the incomplete edge (prefix completion).
         let single = DoublePinyinSegmentor::flypy().segment("v");
-        assert!(single
-            .edges_from(0)
-            .iter()
-            .any(|edge| edge.kind == SyllableKind::Incomplete));
+        assert!(
+            single
+                .edges_from(0)
+                .iter()
+                .any(|edge| edge.kind == SyllableKind::Incomplete)
+        );
     }
 
     #[test]
     fn keyboard_vd_offers_zhong_with_cost() {
-        let segmentor = DoublePinyinSegmentor::flypy()
-            .with_keyboard(KeyboardMistouchModel::qwerty(350_000));
+        let segmentor =
+            DoublePinyinSegmentor::flypy().with_keyboard(KeyboardMistouchModel::qwerty(350_000));
         let graph = segmentor.segment("vd");
         let zhong = graph
             .edges_from(0)
@@ -898,8 +930,8 @@ mod tests {
 
     #[test]
     fn keyboard_exact_path_stays_zero() {
-        let segmentor = DoublePinyinSegmentor::flypy()
-            .with_keyboard(KeyboardMistouchModel::qwerty(350_000));
+        let segmentor =
+            DoublePinyinSegmentor::flypy().with_keyboard(KeyboardMistouchModel::qwerty(350_000));
         let graph = segmentor.segment("vsgo");
         let zhong = graph
             .edges_from(0)
@@ -923,8 +955,8 @@ mod tests {
 
     #[test]
     fn keyboard_alternative_count_is_bounded() {
-        let segmentor = DoublePinyinSegmentor::flypy()
-            .with_keyboard(KeyboardMistouchModel::qwerty(350_000));
+        let segmentor =
+            DoublePinyinSegmentor::flypy().with_keyboard(KeyboardMistouchModel::qwerty(350_000));
         let graph = segmentor.segment("vd");
         // exact zhai + neighbor variants (cai, gai, bai, zhong, zhe, zhen,
         // zhuan, zhua, zhao, zhui) — never 676.
@@ -933,8 +965,8 @@ mod tests {
 
     #[test]
     fn confusion_rule_adds_intended_edge() {
-        let model = CodeConfusionModel::from_rules(250_000, &[("vd".into(), "vs".into(), None)])
-            .unwrap();
+        let model =
+            CodeConfusionModel::from_rules(250_000, &[("vd".into(), "vs".into(), None)]).unwrap();
         let segmentor = DoublePinyinSegmentor::flypy().with_confusion(model);
         let graph = segmentor.segment("vd");
         let zhong = graph
@@ -947,8 +979,8 @@ mod tests {
 
     #[test]
     fn confusion_rules_are_directional() {
-        let model = CodeConfusionModel::from_rules(250_000, &[("vd".into(), "vs".into(), None)])
-            .unwrap();
+        let model =
+            CodeConfusionModel::from_rules(250_000, &[("vd".into(), "vs".into(), None)]).unwrap();
         let segmentor = DoublePinyinSegmentor::flypy().with_confusion(model);
         let graph = segmentor.segment("vs");
         assert!(
@@ -959,11 +991,9 @@ mod tests {
 
     #[test]
     fn confusion_rule_cost_override() {
-        let model = CodeConfusionModel::from_rules(
-            250_000,
-            &[("vd".into(), "vs".into(), Some(180_000))],
-        )
-        .unwrap();
+        let model =
+            CodeConfusionModel::from_rules(250_000, &[("vd".into(), "vs".into(), Some(180_000))])
+                .unwrap();
         let segmentor = DoublePinyinSegmentor::flypy().with_confusion(model);
         let graph = segmentor.segment("vd");
         let zhong = graph
@@ -977,17 +1007,14 @@ mod tests {
     #[test]
     fn confusion_rejects_malformed_rules() {
         for (from, to) in [
-            ("v", "vs"),     // too short
-            ("Vd", "vs"),    // uppercase
-            ("vd", "v"),     // too short target
-            ("vd", "vd"),    // self mapping
+            ("v", "vs"),  // too short
+            ("Vd", "vs"), // uppercase
+            ("vd", "v"),  // too short target
+            ("vd", "vd"), // self mapping
         ] {
             assert!(
-                CodeConfusionModel::from_rules(
-                    250_000,
-                    &[(from.to_owned(), to.to_owned(), None)],
-                )
-                .is_err(),
+                CodeConfusionModel::from_rules(250_000, &[(from.to_owned(), to.to_owned(), None)],)
+                    .is_err(),
                 "rule {from}→{to} must be rejected"
             );
         }

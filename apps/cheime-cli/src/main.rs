@@ -91,8 +91,7 @@ fn run() -> Result<(), String> {
         dict_index.total_entries(),
         options.dictionary_dir.display()
     );
-    let pipeline =
-        PipelineFactory::build(&config, Some(store.clone()), Some(dict_index)).unwrap();
+    let pipeline = PipelineFactory::build(&config, Some(store.clone()), Some(dict_index)).unwrap();
 
     let header = MessageHeader {
         protocol_version: CORE_PROTOCOL_VERSION,

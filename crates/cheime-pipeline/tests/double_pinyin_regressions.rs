@@ -4,10 +4,10 @@
 use cheime_config::schema::SchemaConfig;
 use cheime_dictionary::{CompiledIndex, DictEntry};
 use cheime_model::{DeploymentGeneration, Key, KeyEvent, KeyState};
+use cheime_pipeline::InputPipeline;
 use cheime_pipeline::decoder::ResolvedCandidate;
 use cheime_pipeline::factory::PipelineFactory;
 use cheime_pipeline::segmentation::InputSpan;
-use cheime_pipeline::InputPipeline;
 use std::sync::Arc;
 
 fn key(ch: char) -> KeyEvent {
@@ -20,12 +20,42 @@ fn key(ch: char) -> KeyEvent {
 fn index() -> Arc<CompiledIndex> {
     Arc::new(CompiledIndex::build(
         vec![
-            DictEntry { text: "中".into(), code: "zhong".into(), weight: Some(100), stem: None },
-            DictEntry { text: "国".into(), code: "guo".into(), weight: Some(100), stem: None },
-            DictEntry { text: "中国".into(), code: "zhong guo".into(), weight: Some(500), stem: None },
-            DictEntry { text: "中国人".into(), code: "zhong guo ren".into(), weight: Some(600), stem: None },
-            DictEntry { text: "宅".into(), code: "zhai".into(), weight: Some(80), stem: None },
-            DictEntry { text: "张".into(), code: "zhang".into(), weight: Some(90), stem: None },
+            DictEntry {
+                text: "中".into(),
+                code: "zhong".into(),
+                weight: Some(100),
+                stem: None,
+            },
+            DictEntry {
+                text: "国".into(),
+                code: "guo".into(),
+                weight: Some(100),
+                stem: None,
+            },
+            DictEntry {
+                text: "中国".into(),
+                code: "zhong guo".into(),
+                weight: Some(500),
+                stem: None,
+            },
+            DictEntry {
+                text: "中国人".into(),
+                code: "zhong guo ren".into(),
+                weight: Some(600),
+                stem: None,
+            },
+            DictEntry {
+                text: "宅".into(),
+                code: "zhai".into(),
+                weight: Some(80),
+                stem: None,
+            },
+            DictEntry {
+                text: "张".into(),
+                code: "zhang".into(),
+                weight: Some(90),
+                stem: None,
+            },
         ],
         DeploymentGeneration::new(1),
     ))
@@ -91,7 +121,10 @@ fn flypy_vsgo_matches_quanpin_zhongguo() {
 #[test]
 fn flypy_candidates_use_raw_spans() {
     let candidates = type_all(&flypy_pipeline(index()), "vsgo");
-    let china = candidates.iter().find(|c| c.display.text == "中国").unwrap();
+    let china = candidates
+        .iter()
+        .find(|c| c.display.text == "中国")
+        .unwrap();
     assert_eq!(china.consumed, InputSpan::new(0, 4));
     let zhong = candidates.iter().find(|c| c.display.text == "中").unwrap();
     assert_eq!(zhong.consumed, InputSpan::new(0, 2));
@@ -105,8 +138,14 @@ fn flypy_partial_input_offers_prefix_candidates() {
     // "v" → Incomplete edge canonical "zh" → prefix lookup
     let candidates = type_all(&flypy_pipeline(index()), "v");
     let texts: Vec<&str> = candidates.iter().map(|c| c.display.text.as_str()).collect();
-    assert!(texts.contains(&"中"), "v must complete to 中 via zh prefix; got {texts:?}");
-    assert!(texts.contains(&"张"), "v must complete to 张 via zh prefix; got {texts:?}");
+    assert!(
+        texts.contains(&"中"),
+        "v must complete to 中 via zh prefix; got {texts:?}"
+    );
+    assert!(
+        texts.contains(&"张"),
+        "v must complete to 张 via zh prefix; got {texts:?}"
+    );
 }
 
 #[test]
@@ -138,13 +177,17 @@ fn correction_toggle_combinations() {
         let config: SchemaConfig = serde_yaml::from_str(yaml).unwrap();
         let pipeline = PipelineFactory::build(&config, None, Some(index())).unwrap();
         let candidates = type_all(&pipeline, "vd");
-        let has_zhong = candidates.iter().any(|candidate| candidate.display.text == "中");
+        let has_zhong = candidates
+            .iter()
+            .any(|candidate| candidate.display.text == "中");
         assert_eq!(
             has_zhong, expect_zhong,
             "{name}: vd must offer 中 (corrected vs→zhong) iff corrections are enabled"
         );
         assert!(
-            candidates.iter().any(|candidate| candidate.display.text == "宅"),
+            candidates
+                .iter()
+                .any(|candidate| candidate.display.text == "宅"),
             "{name}: exact vd → zhai must always be available"
         );
     }
@@ -162,7 +205,10 @@ fn exact_flypy_path_stays_zero_cost_with_corrections() {
         candidates[0].display.text, "中国",
         "the exact path must outrank every corrected path"
     );
-    let china = candidates.iter().find(|candidate| candidate.display.text == "中国").unwrap();
+    let china = candidates
+        .iter()
+        .find(|candidate| candidate.display.text == "中国")
+        .unwrap();
     assert_eq!(china.consumed, InputSpan::new(0, 4));
     assert_eq!(china.canonical_code, "zhong guo");
 }

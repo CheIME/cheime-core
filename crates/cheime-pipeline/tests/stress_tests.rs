@@ -369,12 +369,9 @@ punctuator:
   half_shape: {}
 "#;
     let config: SchemaConfig = serde_yaml::from_str(config_yaml).unwrap();
-    let p = cheime_pipeline::factory::PipelineFactory::build(
-        &config,
-        None,
-        Some(real_dict().clone()),
-    )
-    .unwrap();
+    let p =
+        cheime_pipeline::factory::PipelineFactory::build(&config, None, Some(real_dict().clone()))
+            .unwrap();
 
     let result = p
         .apply(
@@ -406,12 +403,9 @@ punctuator:
   half_shape: {}
 "#;
     let config: SchemaConfig = serde_yaml::from_str(config_yaml).unwrap();
-    let p = cheime_pipeline::factory::PipelineFactory::build(
-        &config,
-        None,
-        Some(real_dict().clone()),
-    )
-    .unwrap();
+    let p =
+        cheime_pipeline::factory::PipelineFactory::build(&config, None, Some(real_dict().clone()))
+            .unwrap();
 
     let result = p
         .apply(
@@ -452,12 +446,9 @@ punctuator:
   half_shape: {}
 "#;
     let config: SchemaConfig = serde_yaml::from_str(config_yaml).unwrap();
-    let p = cheime_pipeline::factory::PipelineFactory::build(
-        &config,
-        None,
-        Some(real_dict().clone()),
-    )
-    .unwrap();
+    let p =
+        cheime_pipeline::factory::PipelineFactory::build(&config, None, Some(real_dict().clone()))
+            .unwrap();
 
     // Type '3' then '.'
     let r1 = p
@@ -502,12 +493,9 @@ punctuator:
   half_shape: {}
 "#;
     let config: SchemaConfig = serde_yaml::from_str(config_yaml).unwrap();
-    let p = cheime_pipeline::factory::PipelineFactory::build(
-        &config,
-        None,
-        Some(real_dict().clone()),
-    )
-    .unwrap();
+    let p =
+        cheime_pipeline::factory::PipelineFactory::build(&config, None, Some(real_dict().clone()))
+            .unwrap();
 
     // "3n." — the 'n' resets digit tracking, so '.' should commit '。'
     p.apply(

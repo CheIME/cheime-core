@@ -900,7 +900,10 @@ engine:
         };
         let mistouch = input.keyboard_mistouch.as_ref().unwrap();
         assert!(mistouch.enabled);
-        assert_eq!(mistouch.cost, 350_000, "omitted cost must fall back to the contract default");
+        assert_eq!(
+            mistouch.cost, 350_000,
+            "omitted cost must fall back to the contract default"
+        );
         assert_eq!(mistouch.layout, "qwerty");
         let confusion = input.code_confusion.as_ref().unwrap();
         assert!(confusion.enabled);
@@ -948,10 +951,12 @@ engine:
 
     #[test]
     fn input_rejects_unknown_variant() {
-        assert!(serde_yaml::from_str::<SchemaConfig>(
-            "schema_version: 1\nengine:\n  input:\n    type: wubi\n"
-        )
-        .is_err());
+        assert!(
+            serde_yaml::from_str::<SchemaConfig>(
+                "schema_version: 1\nengine:\n  input:\n    type: wubi\n"
+            )
+            .is_err()
+        );
     }
 
     #[test]

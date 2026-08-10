@@ -240,9 +240,24 @@ fn constructed_phrase_is_learned_after_delayed_confirmation() {
 fn double_pinyin_pipeline() -> ComposablePipeline {
     let index = Arc::new(CompiledIndex::build(
         vec![
-            DictEntry { text: "中".into(), code: "zhong".into(), weight: Some(100), stem: None },
-            DictEntry { text: "国".into(), code: "guo".into(), weight: Some(100), stem: None },
-            DictEntry { text: "中国".into(), code: "zhong guo".into(), weight: Some(500), stem: None },
+            DictEntry {
+                text: "中".into(),
+                code: "zhong".into(),
+                weight: Some(100),
+                stem: None,
+            },
+            DictEntry {
+                text: "国".into(),
+                code: "guo".into(),
+                weight: Some(100),
+                stem: None,
+            },
+            DictEntry {
+                text: "中国".into(),
+                code: "zhong guo".into(),
+                weight: Some(500),
+                stem: None,
+            },
         ],
         DeploymentGeneration::new(40),
     ));
@@ -263,9 +278,24 @@ fn double_pinyin_learning_pipeline(
     let learning = Arc::new(LearningService::new(store.clone(), clock.clone()));
     let index = Arc::new(CompiledIndex::build(
         vec![
-            DictEntry { text: "中".into(), code: "zhong".into(), weight: Some(100), stem: None },
-            DictEntry { text: "国".into(), code: "guo".into(), weight: Some(100), stem: None },
-            DictEntry { text: "中国".into(), code: "zhong guo".into(), weight: Some(500), stem: None },
+            DictEntry {
+                text: "中".into(),
+                code: "zhong".into(),
+                weight: Some(100),
+                stem: None,
+            },
+            DictEntry {
+                text: "国".into(),
+                code: "guo".into(),
+                weight: Some(100),
+                stem: None,
+            },
+            DictEntry {
+                text: "中国".into(),
+                code: "zhong guo".into(),
+                weight: Some(500),
+                stem: None,
+            },
         ],
         DeploymentGeneration::new(40),
     ));
@@ -345,7 +375,10 @@ fn double_pinyin_partial_commit_moves_raw_active_start() {
     // The active composition is the RAW keys "go" — active_start moved 0..2 —
     // and re-segments to offer 国.
     assert!(
-        snapshot.candidates.iter().any(|candidate| candidate.text == "国"),
+        snapshot
+            .candidates
+            .iter()
+            .any(|candidate| candidate.text == "国"),
         "remaining raw keys go must re-segment to 国"
     );
 }
@@ -366,7 +399,10 @@ fn double_pinyin_backspace_rebuilds_from_raw_composition() {
         .unwrap();
     assert_eq!(snapshot.preedit, "v");
     assert!(
-        snapshot.candidates.iter().any(|candidate| candidate.text == "中"),
+        snapshot
+            .candidates
+            .iter()
+            .any(|candidate| candidate.text == "中"),
         "v → Incomplete zh must still offer 中 after backspace"
     );
 }
@@ -479,7 +515,11 @@ fn double_pinyin_commit_learns_canonical_pinyin_code() {
 
     // Learning must record the canonical pinyin code, never the raw keys.
     assert!(
-        store.lock().query("zhong guo").iter().any(|candidate| candidate.text == "中国"),
+        store
+            .lock()
+            .query("zhong guo")
+            .iter()
+            .any(|candidate| candidate.text == "中国"),
         "user store must learn (中国, zhong guo)"
     );
     assert!(

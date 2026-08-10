@@ -164,13 +164,14 @@ impl PipelineFactory {
                     if matches!(s, SegmentorConfig::PinyinSyllable) {
                         let mut segmentor = PinyinSegmentor::new();
                         if let Some(correction) = &e.pinyin_correction {
-                            segmentor = segmentor
-                                .with_correction(crate::segmentor::PinyinCorrectionOptions {
+                            segmentor = segmentor.with_correction(
+                                crate::segmentor::PinyinCorrectionOptions {
                                     enabled: correction.enabled,
                                     max_edit_distance: correction.max_edit_distance,
                                     max_candidates_per_start: correction.max_candidates_per_start,
                                     edit_penalty: correction.edit_penalty,
-                                });
+                                },
+                            );
                         }
                         return Ok(Box::new(segmentor));
                     }
@@ -390,7 +391,10 @@ impl std::fmt::Display for BuildError {
                 write!(f, "invalid double-pinyin scheme: {message}")
             }
             Self::UnsupportedKeyboardLayout { layout } => {
-                write!(f, "unsupported keyboard layout '{layout}' (only 'qwerty' is available)")
+                write!(
+                    f,
+                    "unsupported keyboard layout '{layout}' (only 'qwerty' is available)"
+                )
             }
             Self::InvalidCodeConfusionRule { message } => {
                 write!(f, "invalid code-confusion rule: {message}")
@@ -423,11 +427,13 @@ impl BuildError {
                 cheime_diagnostics::Severity::ComponentInit,
                 error.clone(),
             ),
-            Self::InvalidDoublePinyinScheme { message } => cheime_diagnostics::DiagnosticError::new(
-                "E-SCHEME-INVALID",
-                cheime_diagnostics::Severity::ComponentInit,
-                format!("Invalid double-pinyin scheme: {message}"),
-            ),
+            Self::InvalidDoublePinyinScheme { message } => {
+                cheime_diagnostics::DiagnosticError::new(
+                    "E-SCHEME-INVALID",
+                    cheime_diagnostics::Severity::ComponentInit,
+                    format!("Invalid double-pinyin scheme: {message}"),
+                )
+            }
             Self::UnsupportedKeyboardLayout { layout } => cheime_diagnostics::DiagnosticError::new(
                 "E-KEYBOARD-LAYOUT",
                 cheime_diagnostics::Severity::ComponentInit,
@@ -447,9 +453,9 @@ mod tests {
     use super::*;
     use crate::InputPipeline;
     use cheime_config::schema::SchemaConfig;
-    use cheime_model::{Key, KeyEvent};
     use cheime_dictionary::{CompiledIndex, DictEntry};
     use cheime_model::DeploymentGeneration;
+    use cheime_model::{Key, KeyEvent};
     fn conf(y: &str) -> SchemaConfig {
         serde_yaml::from_str(y).unwrap()
     }
@@ -487,8 +493,8 @@ mod tests {
     }
     #[test]
     fn empty_config_works() {
-        let p = PipelineFactory::build(&conf("schema_version: 1\nengine: {}\n"), None, None)
-            .unwrap();
+        let p =
+            PipelineFactory::build(&conf("schema_version: 1\nengine: {}\n"), None, None).unwrap();
         let r = p
             .apply(
                 "",
@@ -836,7 +842,11 @@ mod tests {
             composition = update.as_ref().unwrap().composition.clone();
         }
         assert!(
-            update.unwrap().candidates.iter().any(|candidate| candidate.display.text == "中"),
+            update
+                .unwrap()
+                .candidates
+                .iter()
+                .any(|candidate| candidate.display.text == "中"),
             "legacy quanpin path must keep working"
         );
     }
@@ -858,7 +868,11 @@ mod tests {
             composition = update.as_ref().unwrap().composition.clone();
         }
         assert!(
-            update.unwrap().candidates.iter().any(|candidate| candidate.display.text == "中"),
+            update
+                .unwrap()
+                .candidates
+                .iter()
+                .any(|candidate| candidate.display.text == "中"),
             "spelling correction must recover 中 from zhogn"
         );
     }
@@ -890,15 +904,21 @@ mod tests {
         }
         assert_eq!(composition, "ab");
         assert!(
-            update.unwrap().candidates.iter().any(|candidate| candidate.display.text == "啊"),
+            update
+                .unwrap()
+                .candidates
+                .iter()
+                .any(|candidate| candidate.display.text == "啊"),
             "custom scheme ab must decode to the a-syllable candidate"
         );
     }
 
     #[test]
     fn from_scheme_config_rejects_conflicting_and_malformed_schemes() {
-        use cheime_config::schema::{DoublePinyinKeyConfig, DoublePinyinPreset, DoublePinyinSchemeConfig};
         use crate::double_pinyin::CompiledDoublePinyinTable;
+        use cheime_config::schema::{
+            DoublePinyinKeyConfig, DoublePinyinPreset, DoublePinyinSchemeConfig,
+        };
 
         // preset + keys are mutually exclusive
         let conflict = DoublePinyinSchemeConfig {
@@ -951,6 +971,9 @@ mod tests {
         // `.err()` instead of `.unwrap_err()`: ComposablePipeline is not Debug.
         .err()
         .expect("unknown keyboard layout must fail the build");
-        assert!(matches!(error, BuildError::UnsupportedKeyboardLayout { .. }));
+        assert!(matches!(
+            error,
+            BuildError::UnsupportedKeyboardLayout { .. }
+        ));
     }
 }

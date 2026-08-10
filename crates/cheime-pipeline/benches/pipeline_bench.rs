@@ -327,8 +327,8 @@ fn bench_dp_segment_exact_16(c: &mut Criterion) {
 }
 
 fn bench_dp_segment_keyboard_8(c: &mut Criterion) {
-    let segmentor = DoublePinyinSegmentor::flypy()
-        .with_keyboard(KeyboardMistouchModel::qwerty(350_000));
+    let segmentor =
+        DoublePinyinSegmentor::flypy().with_keyboard(KeyboardMistouchModel::qwerty(350_000));
     c.bench_function("double_pinyin/segment_keyboard_8", |b| {
         b.iter(|| segmentor.segment(black_box("vsgoxmzl")))
     });
@@ -409,13 +409,21 @@ criterion_group!(
     bench_correction_segmentation,
 );
 
-// A/B baseline vs the native path (Task 3, 2026-08-11, 539K rime_ice index):
+// A/B baseline vs the native path (Task 3, 2026-08-11, 539K rime_ice index, default criterion):
 //   double_pinyin/typing_sentence       29.9 ms   (native: re-decodes every keystroke)
 //   double_pinyin/legacy_mapper_typing  17.2 ms   (legacy: mapper buffers to syllable boundaries)
 // Native exact segmentation is microseconds (segment_exact_8 = 1.26 µs), clearly below the
 // legacy mapper + expanded-quanpin path's millisecond-scale per-key segmentation work. The
-// typing gap is the baseline finding: the stateless native pipeline decodes on every key,
-// while the stateful legacy mapper only re-decodes when a complete syllable is formed.
+// typing gap was the baseline finding: the stateless native pipeline decodes on every key,
+// while the stateful legacy mapper only re-decoded when a complete syllable was formed.
+// Final (Task 11, quick run: sample-size 10 / warm-up 1 s / measurement 2 s):
+//   double_pinyin/typing_sentence           2.44 ms
+//   double_pinyin/segment_exact_8           0.855 µs
+//   double_pinyin/segment_keyboard_8        8.59 µs
+//   double_pinyin/segment_all_correction_8  9.51 µs
+// Ordering holds: exact < keyboard < all_correction — correction search cost only exists when
+// correction models are enabled. Task 3 ran default criterion settings, Task 11 the quick
+// settings above, so cross-run deltas are indicative rather than A/B comparable.
 
 criterion_group!(
     double_pinyin,
