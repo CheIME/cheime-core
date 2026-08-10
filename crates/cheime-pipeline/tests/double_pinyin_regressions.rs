@@ -94,6 +94,7 @@ fn flypy_candidates_use_raw_spans() {
     let china = candidates.iter().find(|c| c.display.text == "中国").unwrap();
     assert_eq!(china.consumed, InputSpan::new(0, 4));
     let zhong = candidates.iter().find(|c| c.display.text == "中").unwrap();
+    assert_eq!(zhong.consumed, InputSpan::new(0, 2));
     let guo = type_all(&flypy_pipeline(index()), "go");
     let guo = guo.iter().find(|c| c.display.text == "国").unwrap();
     assert_eq!(guo.consumed, InputSpan::new(0, 2));
