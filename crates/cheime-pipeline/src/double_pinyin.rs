@@ -279,6 +279,10 @@ impl Segmentor for DoublePinyinSegmentor {
         let bytes = composition.as_bytes();
         let mut graph = SegmentationGraph::new(composition.len());
         for start in 0..bytes.len() {
+            if !composition.is_char_boundary(start) {
+                // Skip UTF-8 continuation bytes; only char starts are handled.
+                continue;
+            }
             let byte = bytes[start];
             if !byte.is_ascii_lowercase() {
                 // Raw edge spanning one char: `'` delimiter, punctuation, …
@@ -591,5 +595,24 @@ mod tests {
     fn segment_empty_composition_is_empty() {
         let graph = DoublePinyinSegmentor::flypy().segment("");
         assert!(graph.is_empty());
+    }
+
+    #[test]
+    fn segment_non_ascii_does_not_panic() {
+        // "vs中go": the 3-byte char becomes one Raw edge; pairs still work
+        // around it. The byte loop must never slice at a continuation byte.
+        let graph = DoublePinyinSegmentor::flypy().segment("vs中go");
+        assert!(graph
+            .edges_from(0)
+            .iter()
+            .any(|edge| edge.canonical == "zhong" && edge.span == InputSpan::new(0, 2)));
+        assert!(graph
+            .edges_from(5)
+            .iter()
+            .any(|edge| edge.canonical == "guo" && edge.span == InputSpan::new(5, 7)));
+        let raw = graph.edges_from(2);
+        assert_eq!(raw.len(), 1);
+        assert_eq!(raw[0].span, InputSpan::new(2, 5));
+        assert_eq!(raw[0].kind, SyllableKind::Raw);
     }
 }
