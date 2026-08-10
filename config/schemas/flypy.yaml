@@ -1,8 +1,9 @@
 # CheIME Flypy (小鹤双拼) schema.
 #
-# Extends the base pipeline and overrides the key mapper to Flypy.
-# CheIME advantage: double-pinyin is purely a KeyMapper swap —
-# no need to duplicate the entire pipeline or pinyin dictionary.
+# Flypy uses a native double-pinyin segmentor that converts raw
+# double-pinyin key codes directly into canonical syllable graph edges.
+# The decoder, dictionaries, user learning, and ranker are shared with
+# quanpin and see only canonical pinyin syllables.
 
 schema_version: 1
 
@@ -10,16 +11,19 @@ extends:
   - "../schemas/base.yaml"
 
 engine:
-  translators:
-    - type: emoji
+  input:
+    type: double_pinyin
+    scheme:
+      preset: flypy
 
-# Flypy key mapper is a runtime component — specified here for documentation.
-# The actual mapper is wired via PipelineFactory::build(key_mapper=FlypyMapper).
-# KeyMapper config:
-#   type: flypy
-#   mapping:
-#     a: [a, a]  v: [zh, ui]  i: [ch, i]  u: [sh, u]
-#     ... (full 26-key mapping)
+  # NOTE: config merge replaces list fields entirely — translators are
+  # repeated here so the dict translator from base.yaml is not lost.
+  translators:
+    - type: dict
+      dictionary: rime_ice_base
+      enable_completion: true
+      enable_sentence: true
+    - type: emoji
 
 speller:
   alphabet: "zyxwvutsrqponmlkjihgfedcba"
@@ -28,6 +32,3 @@ speller:
 
 menu:
   page_size: 9
-
-# Punctuator configuration is inherited from ../schemas/base.yaml.
-# See base.yaml `punctuator:` section for the full mapping.
