@@ -336,7 +336,7 @@ impl Segmentor for DoublePinyinSegmentor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::segmentation::{InputSpan, SegmentationGraph, SyllableEdge, SyllableKind};
+    use crate::segmentation::{InputSpan, SyllableKind};
     use crate::Segmentor;
 
     fn expect_pair(table: &CompiledDoublePinyinTable, k1: char, k2: char, syllables: &[&str]) {
