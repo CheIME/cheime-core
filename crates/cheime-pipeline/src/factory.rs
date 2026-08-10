@@ -121,7 +121,10 @@ impl PipelineFactory {
         Ok(inner)
     }
     fn build_segmentor(e: &EngineConfig) -> Result<Box<dyn Segmentor>, BuildError> {
-        use crate::double_pinyin::{CompiledDoublePinyinTable, DoublePinyinSegmentor, KeyboardMistouchModel};
+        use crate::double_pinyin::{
+            CodeConfusionModel, CompiledDoublePinyinTable, DoublePinyinSegmentor,
+            KeyboardMistouchModel,
+        };
         use cheime_config::schema::InputConfig;
 
         match &e.input {
@@ -153,7 +156,20 @@ impl PipelineFactory {
                             segmentor.with_keyboard(KeyboardMistouchModel::qwerty(mistouch.cost));
                     }
                 }
-                // code_confusion is wired by Task 8.
+                if let Some(confusion) = &input.code_confusion {
+                    if confusion.enabled {
+                        let rules: Vec<(String, String, Option<i64>)> = confusion
+                            .rules
+                            .iter()
+                            .map(|rule| (rule.from.clone(), rule.to.clone(), rule.cost))
+                            .collect();
+                        segmentor = segmentor.with_confusion(
+                            CodeConfusionModel::from_rules(confusion.cost, &rules).map_err(
+                                |message| BuildError::InvalidCodeConfusionRule { message },
+                            )?,
+                        );
+                    }
+                }
                 Ok(Box::new(segmentor))
             }
             None => {
@@ -370,6 +386,9 @@ pub enum BuildError {
     UnsupportedKeyboardLayout {
         layout: String,
     },
+    InvalidCodeConfusionRule {
+        message: String,
+    },
 }
 
 impl std::fmt::Display for BuildError {
@@ -386,6 +405,9 @@ impl std::fmt::Display for BuildError {
             }
             Self::UnsupportedKeyboardLayout { layout } => {
                 write!(f, "unsupported keyboard layout '{layout}' (only 'qwerty' is available)")
+            }
+            Self::InvalidCodeConfusionRule { message } => {
+                write!(f, "invalid code-confusion rule: {message}")
             }
         }
     }
@@ -424,6 +446,11 @@ impl BuildError {
                 "E-KEYBOARD-LAYOUT",
                 cheime_diagnostics::Severity::ComponentInit,
                 format!("Unsupported keyboard layout '{layout}' (only 'qwerty' is available)"),
+            ),
+            Self::InvalidCodeConfusionRule { message } => cheime_diagnostics::DiagnosticError::new(
+                "E-CONFUSION-RULE",
+                cheime_diagnostics::Severity::ComponentInit,
+                format!("Invalid code-confusion rule: {message}"),
             ),
         }
     }

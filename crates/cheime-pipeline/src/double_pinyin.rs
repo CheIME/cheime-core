@@ -295,11 +295,16 @@ use crate::segmentation::{InputSpan, SegmentationGraph, SyllableEdge, SyllableKi
 pub struct DoublePinyinSegmentor {
     table: CompiledDoublePinyinTable,
     keyboard: Option<KeyboardMistouchModel>,
+    confusion: Option<CodeConfusionModel>,
 }
 
 impl DoublePinyinSegmentor {
     pub fn new(table: CompiledDoublePinyinTable) -> Self {
-        Self { table, keyboard: None }
+        Self {
+            table,
+            keyboard: None,
+            confusion: None,
+        }
     }
 
     pub fn flypy() -> Self {
@@ -309,6 +314,12 @@ impl DoublePinyinSegmentor {
     /// Enable keyboard-mistouch substitution (adjacent-key typos).
     pub fn with_keyboard(mut self, model: KeyboardMistouchModel) -> Self {
         self.keyboard = Some(model);
+        self
+    }
+
+    /// Enable directed code-confusion rules (observed pair → intended pair).
+    pub fn with_confusion(mut self, model: CodeConfusionModel) -> Self {
+        self.confusion = Some(model);
         self
     }
 }
@@ -408,6 +419,79 @@ impl KeyboardMistouchModel {
     }
 }
 
+/// Code confusion model: the user typed a valid double-pinyin pair but
+/// confused the scheme rules. Rules are directional — `from → to` never
+/// implies `to → from`.
+#[derive(Clone, Debug)]
+pub struct CodeConfusionModel {
+    /// rules[observed_pair_index] = (intended_pair_index, cost)
+    rules: Box<[Vec<(usize, i64)>]>,
+}
+
+impl CodeConfusionModel {
+    /// Build from `(observed, intended, per-rule cost override)` triples.
+    /// `default_cost` applies when a rule has no override.
+    pub fn from_rules(
+        default_cost: i64,
+        rules: &[(String, String, Option<i64>)],
+    ) -> Result<Self, String> {
+        let mut table = vec![Vec::new(); 26 * 26];
+        for (from, to, cost) in rules {
+            if from.len() != 2
+                || to.len() != 2
+                || !from.bytes().all(|byte| byte.is_ascii_lowercase())
+                || !to.bytes().all(|byte| byte.is_ascii_lowercase())
+            {
+                return Err(format!(
+                    "confusion rule must be two lowercase keys, got {from:?} → {to:?}"
+                ));
+            }
+            if from == to {
+                return Err(format!("confusion rule must not map a pair to itself: {from:?}"));
+            }
+            let observed = pair_index(from.as_bytes()[0], from.as_bytes()[1]);
+            let intended = pair_index(to.as_bytes()[0], to.as_bytes()[1]);
+            table[observed].push((intended, cost.unwrap_or(default_cost).max(0)));
+        }
+        Ok(Self {
+            rules: table.into_boxed_slice(),
+        })
+    }
+
+    pub(crate) fn append_edges(
+        &self,
+        composition: &str,
+        start: usize,
+        bytes: &[u8],
+        table: &CompiledDoublePinyinTable,
+        graph: &mut SegmentationGraph,
+    ) {
+        if start + 1 >= bytes.len() || !bytes[start + 1].is_ascii_lowercase() {
+            return;
+        }
+        let observed = pair_index(bytes[start], bytes[start + 1]);
+        if self.rules[observed].is_empty() {
+            return;
+        }
+        let raw = composition[start..start + 2].to_owned();
+        for &(intended, cost) in &self.rules[observed] {
+            let k1 = (intended / 26) as u8 + b'a';
+            let k2 = (intended % 26) as u8 + b'a';
+            for syllable in table.pair_for(k1 as char, k2 as char) {
+                graph.add_edge_with_cost(
+                    SyllableEdge {
+                        span: InputSpan::new(start, start + 2),
+                        raw: raw.clone(),
+                        canonical: syllable.clone(),
+                        kind: SyllableKind::Complete,
+                    },
+                    cost,
+                );
+            }
+        }
+    }
+}
+
 impl Segmentor for DoublePinyinSegmentor {
     fn segment(&self, composition: &str) -> SegmentationGraph {
         let bytes = composition.as_bytes();
@@ -459,6 +543,10 @@ impl Segmentor for DoublePinyinSegmentor {
             // edges above stay zero-cost.
             if let Some(keyboard) = &self.keyboard {
                 keyboard.append_edges(composition, start, bytes, &self.table, &mut graph);
+            }
+
+            if let Some(confusion) = &self.confusion {
+                confusion.append_edges(composition, start, bytes, &self.table, &mut graph);
             }
 
             // Single-key complete syllables (zero-initial standalone keys).
@@ -841,5 +929,67 @@ mod tests {
         // exact zhai + neighbor variants (cai, gai, bai, zhong, zhe, zhen,
         // zhuan, zhua, zhao, zhui) — never 676.
         assert!(graph.edges_from(0).len() <= 16);
+    }
+
+    #[test]
+    fn confusion_rule_adds_intended_edge() {
+        let model = CodeConfusionModel::from_rules(250_000, &[("vd".into(), "vs".into(), None)])
+            .unwrap();
+        let segmentor = DoublePinyinSegmentor::flypy().with_confusion(model);
+        let graph = segmentor.segment("vd");
+        let zhong = graph
+            .edges_from(0)
+            .iter()
+            .find(|edge| edge.canonical == "zhong")
+            .expect("rule vd→vs must recover zhong");
+        assert_eq!(graph.edge_cost(zhong), 250_000);
+    }
+
+    #[test]
+    fn confusion_rules_are_directional() {
+        let model = CodeConfusionModel::from_rules(250_000, &[("vd".into(), "vs".into(), None)])
+            .unwrap();
+        let segmentor = DoublePinyinSegmentor::flypy().with_confusion(model);
+        let graph = segmentor.segment("vs");
+        assert!(
+            !graph.has_costs(),
+            "rule vd→vs must not apply to vs (no reverse edge)"
+        );
+    }
+
+    #[test]
+    fn confusion_rule_cost_override() {
+        let model = CodeConfusionModel::from_rules(
+            250_000,
+            &[("vd".into(), "vs".into(), Some(180_000))],
+        )
+        .unwrap();
+        let segmentor = DoublePinyinSegmentor::flypy().with_confusion(model);
+        let graph = segmentor.segment("vd");
+        let zhong = graph
+            .edges_from(0)
+            .iter()
+            .find(|edge| edge.canonical == "zhong")
+            .unwrap();
+        assert_eq!(graph.edge_cost(zhong), 180_000);
+    }
+
+    #[test]
+    fn confusion_rejects_malformed_rules() {
+        for (from, to) in [
+            ("v", "vs"),     // too short
+            ("Vd", "vs"),    // uppercase
+            ("vd", "v"),     // too short target
+            ("vd", "vd"),    // self mapping
+        ] {
+            assert!(
+                CodeConfusionModel::from_rules(
+                    250_000,
+                    &[(from.to_owned(), to.to_owned(), None)],
+                )
+                .is_err(),
+                "rule {from}→{to} must be rejected"
+            );
+        }
     }
 }

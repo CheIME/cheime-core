@@ -8,7 +8,9 @@
 use cheime_config::schema::{EngineConfig, SchemaConfig, SegmentorConfig};
 use cheime_dictionary::{CompiledIndex, DictColumn, parse_body};
 use cheime_model::{DeploymentGeneration, Key, KeyEvent, KeyState};
-use cheime_pipeline::double_pinyin::{DoublePinyinSegmentor, KeyboardMistouchModel};
+use cheime_pipeline::double_pinyin::{
+    CodeConfusionModel, DoublePinyinSegmentor, KeyboardMistouchModel,
+};
 use cheime_pipeline::factory::PipelineFactory;
 use cheime_pipeline::key_mapper::DoublePinyinMapper;
 use cheime_pipeline::processor::DefaultProcessor;
@@ -349,7 +351,27 @@ fn bench_dp_segment_keyboard_8(c: &mut Criterion) {
     });
 }
 
-// Confusion segment bench arrives with the model (Task 8).
+fn bench_dp_segment_confusion_8(c: &mut Criterion) {
+    let model =
+        CodeConfusionModel::from_rules(250_000, &[("vd".to_owned(), "vs".to_owned(), None)])
+            .unwrap();
+    let segmentor = DoublePinyinSegmentor::flypy().with_confusion(model);
+    c.bench_function("double_pinyin/segment_confusion_8", |b| {
+        b.iter(|| segmentor.segment(black_box("vsgoxmzl")))
+    });
+}
+
+fn bench_dp_segment_all_8(c: &mut Criterion) {
+    let model =
+        CodeConfusionModel::from_rules(250_000, &[("vd".to_owned(), "vs".to_owned(), None)])
+            .unwrap();
+    let segmentor = DoublePinyinSegmentor::flypy()
+        .with_keyboard(KeyboardMistouchModel::qwerty(350_000))
+        .with_confusion(model);
+    c.bench_function("double_pinyin/segment_all_correction_8", |b| {
+        b.iter(|| segmentor.segment(black_box("vsgoxmzl")))
+    });
+}
 
 fn bench_dp_decode_short(c: &mut Criterion) {
     let pipeline = rime_ice_double_pinyin_pipeline();
@@ -437,6 +459,8 @@ criterion_group!(
     bench_dp_segment_exact_8,
     bench_dp_segment_exact_16,
     bench_dp_segment_keyboard_8,
+    bench_dp_segment_confusion_8,
+    bench_dp_segment_all_8,
     bench_dp_decode_short,
     bench_dp_decode_sentence,
     bench_dp_typing_sentence,
