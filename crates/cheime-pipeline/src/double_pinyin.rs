@@ -251,9 +251,93 @@ impl CompiledDoublePinyinTable {
     }
 }
 
+use crate::Segmentor;
+use crate::segmentation::{InputSpan, SegmentationGraph, SyllableEdge, SyllableKind};
+
+/// Stateless double-pinyin segmentor: raw key composition → canonical graph.
+///
+/// The segmentor never carries state between calls — `segment` is a pure
+/// function of the composition, so backspace, session restore, and candidate
+/// recomputation cannot desync from the raw input.
+#[derive(Clone, Debug)]
+pub struct DoublePinyinSegmentor {
+    table: CompiledDoublePinyinTable,
+}
+
+impl DoublePinyinSegmentor {
+    pub fn new(table: CompiledDoublePinyinTable) -> Self {
+        Self { table }
+    }
+
+    pub fn flypy() -> Self {
+        Self::new(CompiledDoublePinyinTable::flypy())
+    }
+}
+
+impl Segmentor for DoublePinyinSegmentor {
+    fn segment(&self, composition: &str) -> SegmentationGraph {
+        let bytes = composition.as_bytes();
+        let mut graph = SegmentationGraph::new(composition.len());
+        for start in 0..bytes.len() {
+            let byte = bytes[start];
+            if !byte.is_ascii_lowercase() {
+                // Raw edge spanning one char: `'` delimiter, punctuation, …
+                let end = composition[start..]
+                    .char_indices()
+                    .nth(1)
+                    .map(|(offset, _)| start + offset)
+                    .unwrap_or(composition.len());
+                graph.add_edge(SyllableEdge {
+                    span: InputSpan::new(start, end),
+                    raw: composition[start..end].to_owned(),
+                    canonical: composition[start..end].to_owned(),
+                    kind: SyllableKind::Raw,
+                });
+                continue;
+            }
+
+            let k1 = byte;
+            // Single-key edges: complete standalone syllables, or the
+            // incomplete initial prefix (v → "zh" for prefix lookup).
+            for syllable in self.table.single_for(k1 as char) {
+                graph.add_edge(SyllableEdge {
+                    span: InputSpan::new(start, start + 1),
+                    raw: composition[start..start + 1].to_owned(),
+                    canonical: syllable.clone(),
+                    kind: SyllableKind::Complete,
+                });
+            }
+            if let Some(initial) = self.table.initial_for(k1 as char) {
+                graph.add_edge(SyllableEdge {
+                    span: InputSpan::new(start, start + 1),
+                    raw: composition[start..start + 1].to_owned(),
+                    canonical: initial.to_owned(),
+                    kind: SyllableKind::Incomplete,
+                });
+            }
+
+            // Exact two-key pairs.
+            if start + 1 < bytes.len() && bytes[start + 1].is_ascii_lowercase() {
+                let k2 = bytes[start + 1];
+                for syllable in self.table.pair_for(k1 as char, k2 as char) {
+                    graph.add_edge(SyllableEdge {
+                        span: InputSpan::new(start, start + 2),
+                        raw: composition[start..start + 2].to_owned(),
+                        canonical: syllable.clone(),
+                        kind: SyllableKind::Complete,
+                    });
+                }
+            }
+        }
+        graph.finish();
+        graph
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::segmentation::{InputSpan, SegmentationGraph, SyllableEdge, SyllableKind};
+    use crate::Segmentor;
 
     fn expect_pair(table: &CompiledDoublePinyinTable, k1: char, k2: char, syllables: &[&str]) {
         let actual: Vec<&str> = table.pair_for(k1, k2).iter().map(String::as_str).collect();
@@ -394,5 +478,118 @@ mod tests {
         expect_pair(&zr, 'v', 's', &["zhong"]);
         expect_pair(&zr, 'x', 't', &["xue"]);
         expect_pair(&zr, 'l', 't', &["lve"]);
+    }
+    #[test]
+    fn segment_vsgo_spans_raw_offsets() {
+        let graph = DoublePinyinSegmentor::flypy().segment("vsgo");
+        let zhong = graph
+            .edges_from(0)
+            .iter()
+            .find(|edge| edge.canonical == "zhong")
+            .unwrap();
+        assert_eq!(zhong.span, InputSpan::new(0, 2));
+        assert_eq!(zhong.raw, "vs");
+        assert_eq!(zhong.kind, SyllableKind::Complete);
+        assert_eq!(graph.edge_cost(zhong), 0);
+        let guo = graph
+            .edges_from(2)
+            .iter()
+            .find(|edge| edge.canonical == "guo")
+            .unwrap();
+        assert_eq!(guo.span, InputSpan::new(2, 4));
+        assert_eq!(guo.raw, "go");
+        assert_eq!(guo.kind, SyllableKind::Complete);
+        assert_eq!(graph.edge_cost(guo), 0);
+        assert_eq!(graph.input_len(), 4);
+    }
+
+    #[test]
+    fn segment_single_v_is_incomplete_zh() {
+        let graph = DoublePinyinSegmentor::flypy().segment("v");
+        let edges = graph.edges_from(0);
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].span, InputSpan::new(0, 1));
+        assert_eq!(edges[0].raw, "v");
+        assert_eq!(edges[0].canonical, "zh");
+        assert_eq!(edges[0].kind, SyllableKind::Incomplete);
+        assert_eq!(graph.edge_cost(&edges[0]), 0);
+    }
+
+    #[test]
+    fn segment_odd_length_keeps_trailing_incomplete() {
+        let graph = DoublePinyinSegmentor::flypy().segment("vsg");
+        assert!(graph
+            .edges_from(0)
+            .iter()
+            .any(|edge| edge.canonical == "zhong" && edge.span == InputSpan::new(0, 2)));
+        let trailing = graph.edges_from(2);
+        assert_eq!(trailing.len(), 1);
+        assert_eq!(trailing[0].canonical, "g");
+        assert_eq!(trailing[0].kind, SyllableKind::Incomplete);
+    }
+
+    #[test]
+    fn segment_apostrophe_is_raw_boundary() {
+        let graph = DoublePinyinSegmentor::flypy().segment("vs'go");
+        let quote = graph.edges_from(2);
+        assert_eq!(quote.len(), 1);
+        assert_eq!(quote[0].raw, "'");
+        assert_eq!(quote[0].kind, SyllableKind::Raw);
+        assert!(graph
+            .edges_from(3)
+            .iter()
+            .any(|edge| edge.canonical == "guo" && edge.span == InputSpan::new(3, 5)));
+        assert!(graph.has_complete_path());
+    }
+
+    #[test]
+    fn segment_flypy_codes_are_complete_and_free() {
+        let segmentor = DoublePinyinSegmentor::flypy();
+        // code → expected canonical syllable (小鹤 codes)
+        let codes: &[(&str, &str)] = &[
+            ("vs", "zhong"),
+            ("go", "guo"),
+            ("ul", "shuang"),
+            ("vx", "zhua"),
+            ("xt", "xue"),
+            ("lt", "lve"),
+            ("er", "er"),
+            ("ad", "ai"),
+            ("ah", "ang"),
+            ("oo", "o"),
+            ("wg", "weng"),
+            ("yt", "yue"),
+            ("yr", "yuan"),
+            ("xs", "xiong"),
+            ("kk", "kuai"),
+            ("aa", "a"),
+        ];
+        for (code, expected) in codes {
+            let graph = segmentor.segment(code);
+            let edge = graph
+                .edges_from(0)
+                .iter()
+                .find(|edge| edge.canonical == *expected && edge.span.end == code.len())
+                .unwrap_or_else(|| panic!("{code} must segment to {expected}"));
+            assert_eq!(edge.kind, SyllableKind::Complete);
+            assert_eq!(graph.edge_cost(edge), 0, "{code} → {expected} must be free");
+        }
+    }
+
+    #[test]
+    fn segment_primary_path_prefers_complete_pairs() {
+        let graph = DoublePinyinSegmentor::flypy().segment("vsgo");
+        let codes: Vec<String> = graph
+            .primary_path()
+            .into_iter()
+            .map(|segment| segment.code)
+            .collect();
+        assert_eq!(codes, ["zhong", "guo"]);
+    }
+
+    #[test]
+    fn segment_empty_composition_is_empty() {
+        let graph = DoublePinyinSegmentor::flypy().segment("");
+        assert!(graph.is_empty());
     }
 }
