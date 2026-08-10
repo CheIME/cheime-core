@@ -314,7 +314,7 @@ impl DoublePinyinSegmentor {
 }
 
 /// 8-neighborhood adjacency on a standard QWERTY layout, as byte strings,
-/// indexed by key letter (`QWERTY_NEIGHBORS[b'a' + k]` = neighbors of key `k`).
+/// indexed by key position 0..26 (`QWERTY_NEIGHBORS[(k - b'a') as usize]` = neighbors of key `k`),
 const QWERTY_NEIGHBORS: &[&[u8]] = &[
     b"qwszx",    // a
     b"vghn",     // b
