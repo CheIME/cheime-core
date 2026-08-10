@@ -801,11 +801,7 @@ engine:
   translators:
     - type: emoji
 
-# Flypy key mapper 是运行时组件，此处的注释仅为文档说明：
-#   type: flypy
-#   mapping:
-#     a: [a, a]  v: [zh, ui]  i: [ch, i]  u: [sh, u]
-#     ... (完整 26 键映射)
+# 双拼键位由引擎内置的 flypy 预设提供（编译为 raw code → canonical 音节表）。
 
 speller:
   alphabet: "zyxwvutsrqponmlkjihgfedcba"

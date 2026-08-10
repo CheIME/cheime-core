@@ -180,7 +180,7 @@ commit: 好
 
 **涉及 crate**: 新建 `cheime-schema`
 
-### 2.3 Key Mapper — 双拼支持
+### 2.3 双拼 Segmentor — 原生双拼
 
 **当前**: KeyEvent 只接收纯字符。
 
@@ -188,8 +188,8 @@ commit: 好
 - `KeyMapper` trait: `map(KeyEvent) → (char, bool)` — 将物理按键映射为逻辑字符
 - 全拼 Mapper: 直接透传字母键
 - 双拼 Segmentor: 编译方案表（小鹤、自然码、微软双拼等预设 + 内联 keys），raw code → canonical 音节图
-- 零声母处理: 双拼中 'o' 代表零声母
-- 用户自定义键位: 从配置加载映射表
+- 零声母处理: 方案表中的零声母键（如小鹤 a/e/o）单独成音节
+- 自定义键位: engine.input.scheme.keys 内联定义
 
 **涉及 crate**: `cheime-pipeline` (新增 `double_pinyin` 模块；KeyMapper 仅保留物理键重映射)
 

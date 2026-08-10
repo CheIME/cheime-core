@@ -9,7 +9,7 @@ Highest-coupling subsystem: converts a `KeyEvent` plus composition into candidat
 | Task | Location | Notes |
 | --- | --- | --- |
 | Change top-level contracts/order | `src/lib.rs` | `InputPipeline`, traits, `ComposablePipeline` |
-| Change config assembly | `src/factory.rs` | Optional stores/indexes/mappers become trait objects |
+| Change config assembly | `src/factory.rs` | Optional stores/indexes become trait objects |
 | Key-to-composition behavior | `src/processor.rs`, `src/punctuator.rs` | Punctuator wraps the default processor |
 | Pinyin segmentation | `src/segmentor.rs` | Greedy syllable segmentation |
 | Fuzzy/abbreviation expansion | `src/normalizer.rs` | May multiply segment variants |
