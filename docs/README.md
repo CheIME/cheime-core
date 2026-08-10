@@ -72,7 +72,7 @@ KeyEvent → KeyMapper → Processor → Segmentor → Normalizer → Translator
 ### 配置驱动
 
 ```yaml
-# flypy.yaml — 小鹤双拼仅需替换 KeyMapper,词库完全共用
+# flypy.yaml — 小鹤双拼使用原生双拼 Segmentor（engine.input），词库完全共用
 extends: ["../schemas/base.yaml"]
 speller:
   max_code_length: 2

@@ -187,11 +187,11 @@ commit: 好
 **需要实现**:
 - `KeyMapper` trait: `map(KeyEvent) → (char, bool)` — 将物理按键映射为逻辑字符
 - 全拼 Mapper: 直接透传字母键
-- 双拼 Mapper: 支持多种键位（小鹤、自然码、微软双拼、搜狗双拼、紫光双拼）
+- 双拼 Segmentor: 编译方案表（小鹤、自然码、微软双拼等预设 + 内联 keys），raw code → canonical 音节图
 - 零声母处理: 双拼中 'o' 代表零声母
 - 用户自定义键位: 从配置加载映射表
 
-**涉及 crate**: `cheime-pipeline` (新增 `key_mapper` 模块)
+**涉及 crate**: `cheime-pipeline` (新增 `double_pinyin` 模块；KeyMapper 仅保留物理键重映射)
 
 ### 2.4 Code Normalizer
 
@@ -211,7 +211,7 @@ commit: 好
 # schema/double_pinyin_flypy.yaml
 schema:
   name: 小鹤双拼
-  key_mapper: flypy
+  input: {type: double_pinyin, scheme: {preset: flypy}}
   normalizer:
     fuzzy: [zh_z, ch_c, sh_s]
   engine:
@@ -397,7 +397,7 @@ schema:
 阶段 2 (3-4 周): 输入方案与配置
   ├─ 2.1 配置系统
   ├─ 2.2 方案抽象
-  ├─ 2.3 双拼 KeyMapper
+  ├─ 2.3 双拼 Segmentor
   └─ 2.4 模糊音 Normalizer
 
 阶段 3 (2 周): 用户数据持久化

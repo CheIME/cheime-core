@@ -59,7 +59,7 @@ cheime-cli       ← 命令行工具, 集成全部
   ↓
 [cheime-pipeline]
   ComposablePipeline::apply()
-    ├─ KeyMapper::map()        → 全拼透传 / Flypy 两键→拼音
+    ├─ KeyMapper::map()        → 物理键重映射（可选）
     ├─ Processor::process()    → composition = "n"
     ├─ Segmentor::segment()    → [{code: "n", tag: "partial"}]
     ├─ Normalizer::normalize() → (fuzzy: z→zh 等, 可选)

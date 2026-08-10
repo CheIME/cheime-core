@@ -610,7 +610,7 @@ algebra:
     pattern: "^sh"
     to: "s"
 
-# 双拼展开：v → zh/ui（Flypy 映射由 KeyMapper 完成，非 algebra）
+# 双拼展开：v → zh/ui（Flypy 由原生双拼 Segmentor 完成：raw code → canonical 音节图）
 # algebra 更常用于模糊音和容错规则
 ```
 
@@ -791,7 +791,7 @@ menu:
 
 ```yaml
 # CheIME Flypy (小鹤双拼) schema
-# 双拼通过 KeyMapper 实现，schema 仅需调整 max_code_length
+# 双拼通过 engine.input 选择原生 DoublePinyinSegmentor（scheme: flypy）
 schema_version: 1
 
 extends:
