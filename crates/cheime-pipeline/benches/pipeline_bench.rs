@@ -8,15 +8,14 @@
 use cheime_config::schema::{EngineConfig, SchemaConfig, SegmentorConfig};
 use cheime_dictionary::{CompiledIndex, DictColumn, parse_body};
 use cheime_model::{DeploymentGeneration, Key, KeyEvent, KeyState};
-use cheime_pipeline::factory::PipelineFactory;
-use cheime_pipeline::segmentor::{PinyinCorrectionOptions, PinyinSegmentor};
-use cheime_pipeline::{BuiltinPipeline, InputPipeline, Segmentor};
 use cheime_pipeline::double_pinyin::DoublePinyinSegmentor;
+use cheime_pipeline::factory::PipelineFactory;
 use cheime_pipeline::key_mapper::DoublePinyinMapper;
 use cheime_pipeline::processor::DefaultProcessor;
 use cheime_pipeline::ranker::UnifiedRanker;
+use cheime_pipeline::segmentor::{PinyinCorrectionOptions, PinyinSegmentor};
 use cheime_pipeline::translator::DictTranslator;
-use cheime_pipeline::ComposablePipeline;
+use cheime_pipeline::{BuiltinPipeline, ComposablePipeline, InputPipeline, Segmentor};
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use std::sync::{Arc, OnceLock};
 
