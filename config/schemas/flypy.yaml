@@ -16,6 +16,16 @@ engine:
     scheme:
       preset: flypy
 
+    keyboard_mistouch:
+      enabled: true
+      cost: 350000
+      layout: qwerty
+
+    # Code confusion is opt-in: it needs explicit rules.
+    code_confusion:
+      enabled: false
+      cost: 250000
+
   # NOTE: config merge replaces list fields entirely — translators are
   # repeated here so the dict translator from base.yaml is not lost.
   translators:

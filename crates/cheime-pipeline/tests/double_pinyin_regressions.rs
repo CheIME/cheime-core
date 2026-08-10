@@ -108,3 +108,61 @@ fn flypy_partial_input_offers_prefix_candidates() {
     assert!(texts.contains(&"中"), "v must complete to 中 via zh prefix; got {texts:?}");
     assert!(texts.contains(&"张"), "v must complete to 张 via zh prefix; got {texts:?}");
 }
+
+#[test]
+fn correction_toggle_combinations() {
+    let configs: [(&str, &str, bool); 4] = [
+        (
+            "kb-off/cf-off",
+            "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      preset: flypy\n  translators:\n    - type: dict\n      dictionary: main\n",
+            false,
+        ),
+        (
+            "kb-on/cf-off",
+            "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      preset: flypy\n    keyboard_mistouch:\n      enabled: true\n      cost: 350000\n  translators:\n    - type: dict\n      dictionary: main\n",
+            true,
+        ),
+        (
+            "kb-off/cf-on",
+            "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      preset: flypy\n    code_confusion:\n      enabled: true\n      cost: 250000\n      rules:\n        - from: vd\n          to: vs\n  translators:\n    - type: dict\n      dictionary: main\n",
+            true,
+        ),
+        (
+            "kb-on/cf-on",
+            "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      preset: flypy\n    keyboard_mistouch:\n      enabled: true\n      cost: 350000\n    code_confusion:\n      enabled: true\n      cost: 250000\n      rules:\n        - from: vd\n          to: vs\n  translators:\n    - type: dict\n      dictionary: main\n",
+            true,
+        ),
+    ];
+
+    for (name, yaml, expect_zhong) in configs {
+        let config: SchemaConfig = serde_yaml::from_str(yaml).unwrap();
+        let pipeline = PipelineFactory::build(&config, None, Some(index()), None).unwrap();
+        let candidates = type_all(&pipeline, "vd");
+        let has_zhong = candidates.iter().any(|candidate| candidate.display.text == "中");
+        assert_eq!(
+            has_zhong, expect_zhong,
+            "{name}: vd must offer 中 (corrected vs→zhong) iff corrections are enabled"
+        );
+        assert!(
+            candidates.iter().any(|candidate| candidate.display.text == "宅"),
+            "{name}: exact vd → zhai must always be available"
+        );
+    }
+}
+
+#[test]
+fn exact_flypy_path_stays_zero_cost_with_corrections() {
+    let config: SchemaConfig = serde_yaml::from_str(
+        "schema_version: 1\nengine:\n  input:\n    type: double_pinyin\n    scheme:\n      preset: flypy\n    keyboard_mistouch:\n      enabled: true\n      cost: 350000\n    code_confusion:\n      enabled: true\n      cost: 250000\n      rules:\n        - from: vd\n          to: vs\n  translators:\n    - type: dict\n      dictionary: main\n",
+    )
+    .unwrap();
+    let pipeline = PipelineFactory::build(&config, None, Some(index()), None).unwrap();
+    let candidates = type_all(&pipeline, "vsgo");
+    assert_eq!(
+        candidates[0].display.text, "中国",
+        "the exact path must outrank every corrected path"
+    );
+    let china = candidates.iter().find(|candidate| candidate.display.text == "中国").unwrap();
+    assert_eq!(china.consumed, InputSpan::new(0, 4));
+    assert_eq!(china.canonical_code, "zhong guo");
+}
