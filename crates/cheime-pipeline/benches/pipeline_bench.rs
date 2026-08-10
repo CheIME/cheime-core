@@ -357,7 +357,7 @@ fn bench_dp_segment_confusion_8(c: &mut Criterion) {
             .unwrap();
     let segmentor = DoublePinyinSegmentor::flypy().with_confusion(model);
     c.bench_function("double_pinyin/segment_confusion_8", |b| {
-        b.iter(|| segmentor.segment(black_box("vsgoxmzl")))
+        b.iter(|| segmentor.segment(black_box("vdgoxmzl")))
     });
 }
 
@@ -369,7 +369,7 @@ fn bench_dp_segment_all_8(c: &mut Criterion) {
         .with_keyboard(KeyboardMistouchModel::qwerty(350_000))
         .with_confusion(model);
     c.bench_function("double_pinyin/segment_all_correction_8", |b| {
-        b.iter(|| segmentor.segment(black_box("vsgoxmzl")))
+        b.iter(|| segmentor.segment(black_box("vdgoxmzl")))
     });
 }
 
