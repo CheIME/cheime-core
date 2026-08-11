@@ -6,19 +6,19 @@
 //!
 //! ```text
 //! ╔═══════════════════════════════════════════╗
-//! ║  Header (64 bytes)                       ║
+//! ║  Header (64 bytes)                        ║
 //! ╠═══════════════════════════════════════════╣
-//! ║  Code Index (code_count × 12 bytes)      ║  ← sorted by code string
-//! ║    [u32 code_off_le]  → text pool        ║
-//! ║    [u32 first_blk_le] → block table idx  ║
-//! ║    [u32 count_le]     → entry count      ║
+//! ║  Code Index (code_count × 12 bytes)       ║  ← sorted by code string
+//! ║    [u32 code_off_le]  → text pool         ║
+//! ║    [u32 first_blk_le] → block table idx   ║
+//! ║    [u32 count_le]     → entry count       ║
 //! ╠═══════════════════════════════════════════╣
-//! ║  Block Table (entry_count × 8 bytes)     ║
-//! ║    [u32 text_off_le]  → text pool        ║
-//! ║    [i32 weight_le]                       ║
+//! ║  Block Table (entry_count × 8 bytes)      ║
+//! ║    [u32 text_off_le]  → text pool         ║
+//! ║    [i32 weight_le]                        ║
 //! ╠═══════════════════════════════════════════╣
-//! ║  Text Pool                               ║
-//! ║    [u16 len_le][u8; len (utf-8)] × N     ║
+//! ║  Text Pool                                ║
+//! ║    [u16 len_le][u8; len (utf-8)] × N      ║
 //! ╚═══════════════════════════════════════════╝
 //! ```
 //!
